@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctrlx-demo-dltrend"
+version = "1.0.1"
+description = "Browse ctrlX Data Layer nodes and trend their values"
+requires-python = ">=3.10"
+dependencies = ["ctrlx-datalayer<=3.6"]
+
+[tool.setuptools]
+packages = ["app"]

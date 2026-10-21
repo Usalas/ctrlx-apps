@@ -1,0 +1,118 @@
+name: Build ctrlX snaps
+
+# Builds every app in apps/<name>/ (each has snap/snapcraft.yaml) natively for
+# amd64 (ctrlX COREvirtual / x86 IPC) and arm64 (ctrlX CORE X3 etc.).
+# Download the .snap files from the run's "Artifacts" section.
+
+on:
+  push:
+    branches: [main]
+    paths: ["apps/**", ".github/workflows/build-snaps.yml"]
+  pull_request:
+    paths: ["apps/**", ".github/workflows/build-snaps.yml"]
+  workflow_dispatch:
+    inputs:
+      app:
+        description: "App folder under apps/ to build (empty = all)"
+        required: false
+        default: ""
+
+env:
+  # ctrlX AUTOMATION SDK release that matches the target ctrlX OS (4.x -> core24)
+  SDK_VERSION: "4.6.0"
+
+jobs:
+  list-apps:
+    runs-on: ubuntu-24.04
+    outputs:
+      apps: ${{ steps.find.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: find
+        run: |
+          if [ -n "${{ github.event.inputs.app }}" ]; then
+            apps='["${{ github.event.inputs.app }}"]'
+          else
+            apps=$(find apps -mindepth 3 -maxdepth 3 -path '*/snap/snapcraft.yaml' | cut -d/ -f2 | sort | jq -R . | jq -cs .)
+          fi
+          echo "apps=$apps" >> "$GITHUB_OUTPUT"
+          echo "Apps: $apps"
+
+  build:
+    needs: list-apps
+    strategy:
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.list-apps.outputs.apps) }}
+        arch: [amd64, arm64]
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.app }} (${{ matrix.arch }})
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install snapcraft 8.x
+        run: sudo snap install snapcraft --classic --channel=8.x/stable
+
+      - name: Cache ctrlX Data Layer deb
+        id: cache-deb
+        uses: actions/cache@v4
+        with:
+          path: ctrlx-deb
+          key: ctrlx-datalayer-deb-${{ env.SDK_VERSION }}
+
+      - name: Download ctrlX Data Layer deb from the SDK release
+        if: steps.cache-deb.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfL -o sdk.zip \
+            "https://github.com/boschrexroth/ctrlx-automation-sdk/releases/download/${SDK_VERSION}/ctrlx-automation-sdk-${SDK_VERSION}.zip"
+          mkdir -p ctrlx-deb
+          unzip -j sdk.zip 'ctrlx-automation-sdk/deb/ctrlx-datalayer-*.deb' -d ctrlx-deb
+          rm sdk.zip
+          ls -la ctrlx-deb
+
+      - name: Register the deb as a local apt repository (for stage-packages)
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq dpkg-dev squashfs-tools
+          sudo mkdir -p /opt/ctrlx-deb
+          sudo cp ctrlx-deb/*.deb /opt/ctrlx-deb/
+          cd /opt/ctrlx-deb && dpkg-scanpackages -m . | sudo tee Packages >/dev/null
+          echo "deb [trusted=yes] file:/opt/ctrlx-deb ./" | sudo tee /etc/apt/sources.list.d/ctrlx-automation.list
+          echo 'APT::Sandbox::User "root";' | sudo tee /etc/apt/apt.conf.d/10sandbox
+          sudo apt-get update -qq
+          apt-cache policy ctrlx-datalayer | head -3
+
+      - name: Build snap
+        working-directory: apps/${{ matrix.app }}
+        # sudo resets PATH to the system one, so the venv uses /usr/bin/python3 (3.12 = core24)
+        run: sudo snapcraft pack --destructive-mode --build-for=${{ matrix.arch }}
+
+      - name: Verify snap
+        working-directory: apps/${{ matrix.app }}
+        run: |
+          f=$(ls *_${{ matrix.arch }}.snap)
+          echo "Built: $f ($(du -h "$f" | cut -f1))"
+          unsquashfs -cat "$f" meta/snap.yaml > snap.yaml
+          cat snap.yaml
+          grep -A1 '^architectures:' snap.yaml | grep -q -- "- ${{ matrix.arch }}" || { echo "::error::wrong architecture"; exit 1; }
+          grep -q '^confinement: strict' snap.yaml || { echo "::error::confinement must be strict"; exit 1; }
+          if unsquashfs -l "$f" | grep -q 'lib/python3'; then
+            unsquashfs -l "$f" | grep -q 'lib/python3.12/' || { echo "::error::python venv is not 3.12 (core24)"; exit 1; }
+          fi
+          if unsquashfs -l "$f" | grep -q 'package-assets/'; then
+            grep -q 'network-bind' snap.yaml || { echo "::error::web app without network-bind plug: listen() will fail under strict confinement"; exit 1; }
+          fi
+          rm snap.yaml
+
+      - name: Upload snap
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app }}-${{ matrix.arch }}
+          path: apps/${{ matrix.app }}/*_${{ matrix.arch }}.snap
+          if-no-files-found: error
+          retention-days: 30
