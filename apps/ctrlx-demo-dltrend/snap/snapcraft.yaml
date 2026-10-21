@@ -1,0 +1,92 @@
+name: ctrlx-demo-dltrend
+title: Data Layer Trend
+version: 1.0.1
+summary: Browse ctrlX Data Layer nodes and trend their values live
+description: |
+  <!--
+  author: Demo
+  url: https://example.com
+  -->
+  Web app in the ctrlX sidebar: browse the Data Layer, build a watch list of nodes,
+  see live values and a multi-series trend chart, export the history as CSV.
+  Reads use the logged-in user's token, so Data Layer permissions apply per user.
+base: core24
+confinement: strict
+grade: stable
+
+platforms:
+  amd64:
+  arm64:
+    build-on: [amd64, arm64]
+    build-for: [arm64]
+
+apps:
+  web:
+    command: bin/run.sh
+    daemon: simple
+    restart-condition: always
+    restart-delay: 10s
+    plugs:
+      - network          # Data Layer IPC
+      - network-bind     # REQUIRED for listen()/accept() on web.sock (seccomp), even for Unix sockets
+      - datalayer
+    slots:
+      - package-assets   # package-manifest.json -> reverse proxy + sidebar menu
+      - package-run      # web.sock for the reverse proxy
+
+parts:
+  web:
+    plugin: python
+    source: .
+    stage-packages:
+      - ctrlx-datalayer
+    override-prime: |
+      craftctl default
+      rm -rf usr/include usr/bin usr/lib/*/pkgconfig usr/lib/*/libcomm_datalayer_static.a
+      find usr/lib -mindepth 1 -maxdepth 1 -type d ! -name "${CRAFT_ARCH_TRIPLET_BUILD_FOR}" -exec rm -rf {} +
+      rm -rf lib/python3*/site-packages/pip lib/python3*/site-packages/setuptools
+      rm -f lib/python3*/site-packages/app/mock.py
+
+  www:
+    plugin: dump
+    source: ./www
+    organize:
+      "*": www/
+
+  configs:
+    plugin: dump
+    source: ./configs
+    organize:
+      "package-assets/*": package-assets/${CRAFT_PROJECT_NAME}/
+
+  wrapper:
+    plugin: dump
+    source: wrapper/
+    organize:
+      run.sh: bin/run.sh
+
+slots:
+  package-assets:
+    interface: content
+    content: package-assets
+    source:
+      read:
+        - $SNAP/package-assets/${CRAFT_PROJECT_NAME}
+  package-run:
+    interface: content
+    content: package-run
+    source:
+      write:
+        - $SNAP_DATA/package-run/${CRAFT_PROJECT_NAME}
+
+plugs:
+  datalayer:
+    interface: content
+    content: datalayer
+    target: $SNAP_DATA/.datalayer
+
+lint:
+  ignore:
+    - library:
+        - usr/lib/aarch64-linux-gnu/libcomm_datalayer.so.*
+        - usr/lib/x86_64-linux-gnu/libcomm_datalayer.so.*
