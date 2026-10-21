@@ -2,6 +2,9 @@ name: Build ctrlX snaps
 
 # Builds every app in apps/<name>/ (each has snap/snapcraft.yaml) natively for
 # amd64 (ctrlX COREvirtual / x86 IPC) and arm64 (ctrlX CORE X3 etc.).
+# The app's snap base decides the target ctrlX OS:
+#   core24 -> ctrlX OS 4.x: Ubuntu 24.04 runners, SDK 4.6.0, Python 3.12
+#   core22 -> ctrlX OS 3.x: Ubuntu 22.04 runners, SDK 3.6.0, Python 3.10
 # Download the .snap files from the run's "Artifacts" section.
 
 on:
@@ -17,41 +20,46 @@ on:
         required: false
         default: ""
 
-env:
-  # ctrlX AUTOMATION SDK release that matches the target ctrlX OS (4.x -> core24)
-  SDK_VERSION: "4.6.0"
-
 jobs:
   list-apps:
     runs-on: ubuntu-24.04
     outputs:
-      apps: ${{ steps.find.outputs.apps }}
+      matrix: ${{ steps.find.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - id: find
+        env:
+          ONLY_APP: ${{ github.event.inputs.app }}
         run: |
-          if [ -n "${{ github.event.inputs.app }}" ]; then
-            apps='["${{ github.event.inputs.app }}"]'
-          else
-            apps=$(find apps -mindepth 3 -maxdepth 3 -path '*/snap/snapcraft.yaml' | cut -d/ -f2 | sort | jq -R . | jq -cs .)
-          fi
-          echo "apps=$apps" >> "$GITHUB_OUTPUT"
-          echo "Apps: $apps"
+          set -euo pipefail
+          entries='[]'
+          for y in apps/*/snap/snapcraft.yaml; do
+            app=$(echo "$y" | cut -d/ -f2)
+            if [ -n "${ONLY_APP:-}" ] && [ "$app" != "$ONLY_APP" ]; then continue; fi
+            base=$(sed -n 's/^base:[[:space:]]*\([a-z0-9]*\).*/\1/p' "$y" | head -1)
+            case "$base" in
+              core24) ubuntu=24.04; sdk=4.6.0; py=3.12 ;;
+              core22) ubuntu=22.04; sdk=3.6.0; py=3.10 ;;
+              *) echo "::error file=$y::unsupported base '$base' (use core22 or core24)"; exit 1 ;;
+            esac
+            for arch in amd64 arm64; do
+              runner="ubuntu-$ubuntu"; [ "$arch" = arm64 ] && runner="ubuntu-$ubuntu-arm"
+              entries=$(jq -c --arg app "$app" --arg arch "$arch" --arg runner "$runner" \
+                --arg base "$base" --arg sdk "$sdk" --arg py "$py" \
+                '. + [{app:$app, arch:$arch, runner:$runner, base:$base, sdk:$sdk, py:$py}]' <<<"$entries")
+            done
+          done
+          [ "$entries" != "[]" ] || { echo "::error::no apps found"; exit 1; }
+          echo "matrix={\"include\":$entries}" >> "$GITHUB_OUTPUT"
+          jq . <<<"$entries"
 
   build:
     needs: list-apps
     strategy:
       fail-fast: false
-      matrix:
-        app: ${{ fromJson(needs.list-apps.outputs.apps) }}
-        arch: [amd64, arm64]
-        include:
-          - arch: amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            runner: ubuntu-24.04-arm
+      matrix: ${{ fromJson(needs.list-apps.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
-    name: ${{ matrix.app }} (${{ matrix.arch }})
+    name: ${{ matrix.app }} (${{ matrix.arch }}, ${{ matrix.base }})
     steps:
       - uses: actions/checkout@v4
 
@@ -63,13 +71,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ctrlx-deb
-          key: ctrlx-datalayer-deb-${{ env.SDK_VERSION }}
+          key: ctrlx-datalayer-deb-${{ matrix.sdk }}
 
-      - name: Download ctrlX Data Layer deb from the SDK release
+      - name: Download ctrlX Data Layer deb from SDK ${{ matrix.sdk }}
         if: steps.cache-deb.outputs.cache-hit != 'true'
         run: |
           curl -sSfL -o sdk.zip \
-            "https://github.com/boschrexroth/ctrlx-automation-sdk/releases/download/${SDK_VERSION}/ctrlx-automation-sdk-${SDK_VERSION}.zip"
+            "https://github.com/boschrexroth/ctrlx-automation-sdk/releases/download/${{ matrix.sdk }}/ctrlx-automation-sdk-${{ matrix.sdk }}.zip"
           mkdir -p ctrlx-deb
           unzip -j sdk.zip 'ctrlx-automation-sdk/deb/ctrlx-datalayer-*.deb' -d ctrlx-deb
           rm sdk.zip
@@ -89,7 +97,8 @@ jobs:
 
       - name: Build snap
         working-directory: apps/${{ matrix.app }}
-        # sudo resets PATH to the system one, so the venv uses /usr/bin/python3 (3.12 = core24)
+        # sudo resets PATH to the system one, so the venv uses the runner's /usr/bin/python3,
+        # which matches the base (3.12 on 24.04 for core24, 3.10 on 22.04 for core22)
         run: sudo snapcraft pack --destructive-mode --build-for=${{ matrix.arch }}
 
       - name: Verify snap
@@ -100,9 +109,10 @@ jobs:
           unsquashfs -cat "$f" meta/snap.yaml > snap.yaml
           cat snap.yaml
           grep -A1 '^architectures:' snap.yaml | grep -q -- "- ${{ matrix.arch }}" || { echo "::error::wrong architecture"; exit 1; }
+          grep -q '^base: ${{ matrix.base }}' snap.yaml || { echo "::error::wrong base"; exit 1; }
           grep -q '^confinement: strict' snap.yaml || { echo "::error::confinement must be strict"; exit 1; }
           if unsquashfs -l "$f" | grep -q 'lib/python3'; then
-            unsquashfs -l "$f" | grep -q 'lib/python3.12/' || { echo "::error::python venv is not 3.12 (core24)"; exit 1; }
+            unsquashfs -l "$f" | grep -q 'lib/python${{ matrix.py }}/' || { echo "::error::python venv is not ${{ matrix.py }} (${{ matrix.base }})"; exit 1; }
           fi
           if unsquashfs -l "$f" | grep -q 'package-assets/'; then
             grep -q 'network-bind' snap.yaml || { echo "::error::web app without network-bind plug: listen() will fail under strict confinement"; exit 1; }

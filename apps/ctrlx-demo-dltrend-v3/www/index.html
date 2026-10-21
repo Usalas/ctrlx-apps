@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Data Layer Trend V3</title>
+<style>
+:root {
+  --bg: #f4f6f8; --panel: #ffffff; --ink: #1d2733; --muted: #66727f; --line: #dfe4ea;
+  --accent: #007bc0; --accent-ink: #ffffff; --bad: #c4291c; --good: #1e8a3c; --hover: #eef3f8;
+  --grid: #e8ecf0;
+  --s1: #007bc0; --s2: #e0602a; --s3: #1e8a3c; --s4: #9e2896; --s5: #c9a400; --s6: #18837e; --s7: #d1366e; --s8: #5a6670;
+  font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161c; --panel: #1a2129; --ink: #e6ebf0; --muted: #94a0ad; --line: #2c3540;
+    --accent: #3fa9e6; --accent-ink: #0b1218; --bad: #ff6b5e; --good: #4cc56f; --hover: #232c36; --grid: #26303a;
+    --s1: #3fa9e6; --s2: #ff8a50; --s3: #4cc56f; --s4: #d77fd0; --s5: #f0cf3a; --s6: #3fc4bd; --s7: #ff6f9b; --s8: #a8b3bd;
+  }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); }
+button, select, input { font: inherit; color: inherit; }
+header {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px;
+  padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 16px; margin: 0 auto 0 0; font-weight: 600; }
+.ctl { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
+select, input[type=text] {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; min-width: 0;
+}
+button {
+  background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; cursor: pointer;
+}
+button:hover { background: var(--hover); }
+button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+button.primary:hover { filter: brightness(1.08); }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: var(--good); border-color: var(--good); }
+.pill.err { color: var(--bad); border-color: var(--bad); }
+main { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 12px; padding: 12px; height: calc(100% - 56px); }
+@media (max-width: 860px) { main { grid-template-columns: minmax(0, 1fr); height: auto; } }
+@media (max-width: 600px) {
+  header { padding: 10px 16px; } main { padding: 12px 16px; }
+  th:nth-child(4), td:nth-child(4), th:nth-child(5), td:nth-child(5), th:nth-child(6), td:nth-child(6) { display: none; }
+  .tablewrap { max-height: none; }
+}
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; min-height: 0; }
+.panel h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0; padding: 10px 12px 6px; font-weight: 600; }
+.addrow { display: flex; gap: 6px; padding: 0 12px 10px; }
+.addrow input { flex: 1; }
+#tree { overflow: auto; flex: 1; padding: 0 4px 8px; min-height: 240px; border-top: 1px solid var(--line); }
+.node { display: flex; align-items: center; gap: 2px; padding: 2px 6px; border-radius: 4px; white-space: nowrap; }
+.node:hover { background: var(--hover); }
+.node .tw { width: 18px; text-align: center; cursor: pointer; color: var(--muted); flex: none; user-select: none; }
+.node .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; cursor: pointer; }
+.node .add { padding: 0 7px; line-height: 20px; font-size: 13px; visibility: hidden; }
+.node:hover .add, .node .add:focus { visibility: visible; }
+.node .add.on { visibility: visible; color: var(--good); border-color: var(--good); }
+.kids { padding-left: 14px; }
+.msg { color: var(--muted); padding: 4px 8px; font-size: 13px; }
+.msg.err { color: var(--bad); }
+.right { display: grid; grid-template-rows: minmax(260px, 1fr) auto; gap: 12px; min-height: 0; }
+.chartwrap { position: relative; flex: 1; min-height: 240px; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+#tip {
+  position: absolute; pointer-events: none; background: var(--panel); border: 1px solid var(--line); border-radius: 6px;
+  padding: 6px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.15); display: none; white-space: nowrap; z-index: 2;
+}
+.charthead { display: flex; align-items: center; gap: 12px; padding-right: 12px; flex-wrap: wrap; }
+.charthead h2 { margin-right: auto; }
+.tablewrap { overflow: auto; max-height: 40vh; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 10px; border-top: 1px solid var(--line); vertical-align: middle; }
+th { font-size: 12px; color: var(--muted); font-weight: 600; }
+td.num { font-variant-numeric: tabular-nums; text-align: right; }
+td.path { word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; display: inline-block; cursor: pointer; border: 2px solid transparent; vertical-align: middle; }
+.sw.off { background: transparent !important; border-color: var(--muted); }
+.x { border: none; background: none; color: var(--muted); font-size: 16px; padding: 0 6px; }
+.x:hover { color: var(--bad); background: none; }
+.bad { color: var(--bad); }
+.empty { color: var(--muted); padding: 14px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Data Layer Trend <small style="font-weight:400;color:var(--muted)">ctrlX OS 3</small></h1>
+  <span id="status" class="pill">connecting…</span>
+  <label class="ctl">Sample
+    <select id="interval">
+      <option value="500">0.5 s</option><option value="1000" selected>1 s</option>
+      <option value="2000">2 s</option><option value="5000">5 s</option>
+    </select>
+  </label>
+  <label class="ctl">Window
+    <select id="window">
+      <option value="60">1 min</option><option value="300" selected>5 min</option>
+      <option value="900">15 min</option><option value="3600">60 min</option>
+    </select>
+  </label>
+  <button id="pause">Pause</button>
+  <button id="clear" title="Clear trend history">Clear</button>
+  <button id="csv" title="Download trend data as CSV">CSV</button>
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Browse Data Layer</h2>
+    <div class="addrow">
+      <input id="pathInput" type="text" list="suggest" placeholder="framework/metrics/system/…" autocomplete="off" spellcheck="false">
+      <datalist id="suggest"></datalist>
+      <button id="addBtn" class="primary">Add</button>
+    </div>
+    <div id="addMsg" class="msg" hidden></div>
+    <div id="tree"></div>
+  </section>
+
+  <div class="right">
+    <section class="panel">
+      <div class="charthead">
+        <h2>Trend</h2>
+        <label class="ctl"><input type="checkbox" id="normalize"> Normalize (0–100 % per item)</label>
+      </div>
+      <div class="chartwrap"><canvas id="chart"></canvas><div id="tip"></div></div>
+    </section>
+    <section class="panel">
+      <h2>Watch list</h2>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th></th><th>Data Layer path</th><th style="text-align:right">Value</th><th>Type</th><th style="text-align:right">Min</th><th style="text-align:right">Max</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="empty" hidden>No items yet. Pick a node in the browser and press <b>+</b>, or type a path and press <b>Add</b>.</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  "use strict";
+  const DEFAULTS = [
+    "framework/metrics/system/cpu-utilisation-percent",
+    "framework/metrics/system/memused-percent",
+    "framework/metrics/system/memused-mb",
+    "framework/metrics/system/memavailable-mb",
+  ];
+  const STORE_KEY = "dltrend.items.v1";
+  const MAX_ITEMS = 20;
+  const BASE = location.pathname.replace(/\/(index\.html)?$/, "");
+  const TOKEN = new URLSearchParams(location.search).get("token") || "";
+  const $ = (id) => document.getElementById(id);
+  const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+  const PALETTE = ["--s1", "--s2", "--s3", "--s4", "--s5", "--s6", "--s7", "--s8"];
+
+  // ---- state ---------------------------------------------------------------
+  /** items: {path, colorIdx, visible, data:[[t,v]], last:{...}} */
+  let items = [];
+  let paused = false, timer = null, inflight = false;
+
+  function load() {
+    let paths = DEFAULTS;
+    try { const s = JSON.parse(localStorage.getItem(STORE_KEY)); if (Array.isArray(s)) paths = s; } catch (e) {}
+    paths.slice(0, MAX_ITEMS).forEach((p) => addItem(p, false));
+  }
+  function save() {
+    try { localStorage.setItem(STORE_KEY, JSON.stringify(items.map((i) => i.path))); } catch (e) {}
+  }
+  function nextColor() {
+    const used = new Set(items.map((i) => i.colorIdx));
+    for (let k = 0; k < PALETTE.length; k++) if (!used.has(k)) return k;
+    return items.length % PALETTE.length;
+  }
+
+  // ---- api -----------------------------------------------------------------
+  async function api(sub, params) {
+    const q = new URLSearchParams(params);
+    const headers = TOKEN ? { Authorization: "Bearer " + TOKEN } : {};
+    const r = await fetch(`${BASE}/api/${sub}?${q}`, { headers, cache: "no-store" });
+    const body = await r.json().catch(() => ({ error: "HTTP " + r.status }));
+    if (!r.ok) throw new Error(body.error || "HTTP " + r.status);
+    return body;
+  }
+  function setStatus(ok, text) {
+    const s = $("status");
+    s.className = "pill " + (ok ? "ok" : "err");
+    s.textContent = text;
+  }
+
+  // ---- watch list ----------------------------------------------------------
+  function normPath(p) { return (p || "").trim().replace(/^\/+|\/+$/g, ""); }
+  function addItem(path, persist = true) {
+    path = normPath(path);
+    if (!path) return "Enter a Data Layer path.";
+    if (items.some((i) => i.path === path)) return "Already in the list.";
+    if (items.length >= MAX_ITEMS) return `Limit of ${MAX_ITEMS} items reached.`;
+    items.push({ path, colorIdx: nextColor(), visible: true, data: [], last: null });
+    if (persist) save();
+    renderRows(); markTree(); poll();
+    return "";
+  }
+  function removeItem(path) {
+    items = items.filter((i) => i.path !== path);
+    save(); renderRows(); markTree(); draw();
+  }
+  function renderRows() {
+    const tb = $("rows");
+    tb.textContent = "";
+    $("empty").hidden = items.length > 0;
+    for (const it of items) {
+      const tr = document.createElement("tr");
+      const sw = document.createElement("span");
+      sw.className = "sw" + (it.visible ? "" : " off");
+      sw.style.background = css(PALETTE[it.colorIdx]);
+      sw.title = it.visible ? "Hide in trend" : "Show in trend";
+      sw.onclick = () => { it.visible = !it.visible; renderRows(); draw(); };
+      const cells = [sw, it.path, "", "", "", "", null];
+      cells.forEach((c, k) => {
+        const td = document.createElement("td");
+        if (k === 0) td.append(c);
+        else if (k === 1) { td.className = "path"; td.textContent = c; }
+        else if (k === 6) {
+          const b = document.createElement("button");
+          b.className = "x"; b.textContent = "×"; b.title = "Remove"; b.setAttribute("aria-label", "Remove " + it.path);
+          b.onclick = () => removeItem(it.path);
+          td.append(b);
+        } else if (k !== 3) td.className = "num";
+        tr.append(td);
+      });
+      it.row = tr;
+      tb.append(tr);
+      updateRow(it);
+    }
+  }
+  function updateRow(it) {
+    if (!it.row) return;
+    const td = it.row.children;
+    const L = it.last;
+    if (!L) { td[2].textContent = "…"; return; }
+    if (!L.ok) {
+      td[2].innerHTML = ""; const s = document.createElement("span"); s.className = "bad"; s.textContent = L.error; td[2].append(s);
+      td[3].textContent = ""; td[4].textContent = ""; td[5].textContent = ""; return;
+    }
+    td[2].textContent = L.text;
+    td[2].title = L.text;
+    td[3].textContent = L.type + (L.value === null ? " (not trended)" : "");
+    const vals = it.data.map((d) => d[1]);
+    td[4].textContent = vals.length ? fmt(Math.min(...vals)) : "";
+    td[5].textContent = vals.length ? fmt(Math.max(...vals)) : "";
+  }
+  function fmt(v) {
+    if (!isFinite(v)) return "";
+    const a = Math.abs(v);
+    if (a !== 0 && (a >= 1e6 || a < 1e-3)) return v.toExponential(2);
+    return (+v.toPrecision(5)).toString();
+  }
+
+  // ---- polling ---------------------------------------------------------------
+  async function poll() {
+    if (paused || inflight || !items.length) return;
+    inflight = true;
+    try {
+      const res = await api("read", { paths: items.map((i) => i.path).join(",") });
+      const t = res.t * 1000;
+      const keep = 3600 * 1000;  // keep up to the longest window
+      for (const r of res.items) {
+        const it = items.find((i) => i.path === r.path);
+        if (!it) continue;
+        it.last = r;
+        if (r.ok && typeof r.value === "number" && isFinite(r.value)) {
+          it.data.push([t, r.value]);
+          while (it.data.length && it.data[0][0] < t - keep) it.data.shift();
+        }
+        updateRow(it);
+      }
+      const bad = res.items.filter((r) => !r.ok).length;
+      setStatus(true, bad ? `live · ${bad} item${bad > 1 ? "s" : ""} unreadable` : "live");
+      draw();
+    } catch (e) {
+      setStatus(false, e.message);
+    } finally { inflight = false; }
+  }
+  function restartTimer() {
+    clearInterval(timer);
+    timer = setInterval(poll, +$("interval").value);
+  }
+
+  // ---- browse tree -----------------------------------------------------------
+  function makeNode(name, path) {
+    const wrap = document.createElement("div");
+    const row = document.createElement("div");
+    row.className = "node";
+    const tw = document.createElement("span"); tw.className = "tw"; tw.textContent = "▸";
+    const nm = document.createElement("span"); nm.className = "nm"; nm.textContent = name; nm.title = path;
+    const add = document.createElement("button"); add.className = "add"; add.textContent = "+"; add.dataset.path = path;
+    add.title = "Add to watch list"; add.setAttribute("aria-label", "Add " + path);
+    add.onclick = (ev) => { ev.stopPropagation(); flashMsg(addItem(path)); };
+    const kids = document.createElement("div"); kids.className = "kids"; kids.hidden = true;
+    let loaded = false;
+    const toggle = async () => {
+      $("pathInput").value = path;
+      if (kids.hidden && !loaded) {
+        tw.textContent = "…";
+        try {
+          const r = await api("browse", { path });
+          loaded = true;
+          if (!r.ok) { kids.append(msg(r.error, true)); }
+          else if (!r.children.length) { tw.textContent = "•"; tw.style.cursor = "default"; return; }
+          else r.children.forEach((c) => kids.append(makeNode(c, path ? path + "/" + c : c)));
+        } catch (e) { kids.append(msg(e.message, true)); loaded = true; }
+      }
+      if (tw.textContent === "•") return;
+      kids.hidden = !kids.hidden;
+      tw.textContent = kids.hidden ? "▸" : "▾";
+      markTree();
+    };
+    tw.onclick = toggle; nm.onclick = toggle;
+    nm.ondblclick = () => flashMsg(addItem(path));
+    row.append(tw, nm, add);
+    wrap.append(row, kids);
+    return wrap;
+  }
+  function msg(text, err) { const d = document.createElement("div"); d.className = "msg" + (err ? " err" : ""); d.textContent = text; return d; }
+  async function loadRoot() {
+    const tree = $("tree");
+    tree.textContent = "";
+    tree.append(msg("loading…"));
+    try {
+      const r = await api("browse", { path: "" });
+      tree.textContent = "";
+      if (!r.ok) return tree.append(msg(r.error, true));
+      r.children.forEach((c) => tree.append(makeNode(c, c)));
+      markTree();
+    } catch (e) {
+      tree.textContent = "";
+      tree.append(msg(e.message, true));
+      const b = document.createElement("button"); b.textContent = "Retry"; b.style.margin = "4px 8px"; b.onclick = loadRoot;
+      tree.append(b);
+    }
+  }
+  function markTree() {
+    const on = new Set(items.map((i) => i.path));
+    document.querySelectorAll(".node .add").forEach((b) => {
+      const isOn = on.has(b.dataset.path);
+      b.classList.toggle("on", isOn);
+      b.textContent = isOn ? "✓" : "+";
+    });
+  }
+  let msgTimer;
+  function flashMsg(text) {
+    const m = $("addMsg");
+    clearTimeout(msgTimer);
+    m.hidden = !text; m.textContent = text; m.className = "msg err";
+    if (text) msgTimer = setTimeout(() => (m.hidden = true), 3000);
+  }
+
+  // autocomplete: browse the parent of what is typed
+  let lastSuggest = null;
+  $("pathInput").addEventListener("input", async (e) => {
+    const v = e.target.value;
+    const parent = v.includes("/") ? v.slice(0, v.lastIndexOf("/")) : "";
+    if (parent === lastSuggest) return;
+    lastSuggest = parent;
+    try {
+      const r = await api("browse", { path: parent });
+      const dl = $("suggest"); dl.textContent = "";
+      (r.children || []).forEach((c) => { const o = document.createElement("option"); o.value = parent ? parent + "/" + c : c; dl.append(o); });
+    } catch (err) { /* ignore */ }
+  });
+  const doAdd = () => { const err = addItem($("pathInput").value); flashMsg(err); if (!err) $("pathInput").select(); };
+  $("addBtn").onclick = doAdd;
+  $("pathInput").addEventListener("keydown", (e) => { if (e.key === "Enter") doAdd(); });
+
+  // ---- chart -----------------------------------------------------------------
+  const cv = $("chart"), ctx = cv.getContext("2d");
+  let hoverX = null, geom = null;
+  function niceTicks(lo, hi, n) {
+    if (lo === hi) { lo -= 1; hi += 1; }
+    const span = hi - lo, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * mag).find((s) => s >= step0) || 10 * mag;
+    const a = Math.floor(lo / step) * step, b = Math.ceil(hi / step) * step;
+    const t = []; for (let v = a; v <= b + step / 2; v += step) t.push(+v.toPrecision(12));
+    return { lo: a, hi: b, ticks: t };
+  }
+  function seriesRange(it, t0) {
+    let lo = Infinity, hi = -Infinity;
+    for (const [t, v] of it.data) if (t >= t0) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    return [lo, hi];
+  }
+  function draw() {
+    const dpr = window.devicePixelRatio || 1;
+    const W = cv.clientWidth, H = cv.clientHeight;
+    if (!W || !H) return;
+    if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(H * dpr)) { cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, W, H);
+    const norm = $("normalize").checked;
+    const winMs = +$("window").value * 1000;
+    const shown = items.filter((i) => i.visible && i.data.length);
+    const tEnd = Math.max(Date.now(), ...items.map((i) => (i.data.length ? i.data[i.data.length - 1][0] : 0)));
+    const oldest = Math.min(...items.filter((i) => i.data.length).map((i) => i.data[0][0]), tEnd);
+    const span = Math.min(winMs, Math.max(30000, tEnd - oldest));   // grow until the window is full
+    const t0 = tEnd - span;
+    const ranges = new Map(shown.map((it) => [it, seriesRange(it, t0)]));
+    let lo = Infinity, hi = -Infinity;
+    if (norm) { lo = 0; hi = 100; } else ranges.forEach(([a, b]) => { lo = Math.min(lo, a); hi = Math.max(hi, b); });
+    const muted = css("--muted"), grid = css("--grid"), ink = css("--ink");
+    ctx.font = "11px system-ui, sans-serif";
+    if (!isFinite(lo)) {
+      ctx.fillStyle = muted; ctx.textAlign = "center";
+      ctx.fillText(items.length ? "Waiting for numeric data…" : "Add Data Layer items to start trending", W / 2, H / 2);
+      geom = null; return;
+    }
+    const pad = (hi - lo) * 0.05 || Math.abs(hi) * 0.05 || 1;
+    const Y = niceTicks(norm ? 0 : lo - pad, norm ? 100 : hi + pad, Math.max(3, Math.floor(H / 50)));
+    const yl = Math.max(...Y.ticks.map((v) => ctx.measureText(fmt(v) + (norm ? "%" : "")).width)) + 14;
+    const L = yl, R = W - 12, T = 10, B = H - 24;
+    const xs = (t) => L + ((t - t0) / span) * (R - L);
+    const ys = (v) => B - ((v - Y.lo) / (Y.hi - Y.lo)) * (B - T);
+    geom = { L, R, T, B, t0, span, xs, ys, norm, ranges };
+    // grid + y labels
+    ctx.lineWidth = 1; ctx.textAlign = "right"; ctx.textBaseline = "middle";
+    for (const v of Y.ticks) {
+      const y = Math.round(ys(v)) + 0.5;
+      ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(L, y); ctx.lineTo(R, y); ctx.stroke();
+      ctx.fillStyle = muted; ctx.fillText(fmt(v) + (norm ? "%" : ""), L - 6, y);
+    }
+    // x labels
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    const stepS = [5, 10, 15, 30, 60, 120, 300, 600, 900, 1800].find((s) => ((R - L) / (span / 1000 / s)) >= 80) || 1800;
+    for (let t = Math.ceil(t0 / (stepS * 1000)) * stepS * 1000; t <= tEnd; t += stepS * 1000) {
+      const x = Math.round(xs(t)) + 0.5;
+      ctx.strokeStyle = grid; ctx.beginPath(); ctx.moveTo(x, T); ctx.lineTo(x, B); ctx.stroke();
+      const d = new Date(t);
+      if (x < L + 34 || x > R - 30) continue;
+      ctx.fillStyle = muted;
+      ctx.fillText(d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: stepS < 60 ? "2-digit" : undefined }), x, B + 6);
+    }
+    // series
+    ctx.save(); ctx.beginPath(); ctx.rect(L, T - 2, R - L, B - T + 4); ctx.clip();
+    ctx.lineWidth = 1.75; ctx.lineJoin = "round";
+    for (const it of shown) {
+      const [a, b] = ranges.get(it);
+      const nv = (v) => (norm ? (b > a ? ((v - a) / (b - a)) * 100 : 50) : v);
+      ctx.strokeStyle = css(PALETTE[it.colorIdx]);
+      ctx.beginPath();
+      let started = false;
+      for (const [t, v] of it.data) {
+        if (t < t0 - 5000) continue;
+        const x = xs(t), y = ys(nv(v));
+        if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.strokeStyle = css("--line"); ctx.strokeRect(L + 0.5, T + 0.5, R - L, B - T);
+    // hover
+    if (hoverX !== null && hoverX >= L && hoverX <= R) {
+      ctx.strokeStyle = ink; ctx.globalAlpha = 0.35; ctx.beginPath(); ctx.moveTo(hoverX + 0.5, T); ctx.lineTo(hoverX + 0.5, B); ctx.stroke(); ctx.globalAlpha = 1;
+      showTip();
+    } else $("tip").style.display = "none";
+  }
+  function nearest(data, t) {
+    let lo = 0, hi = data.length - 1;
+    if (hi < 0) return null;
+    while (lo < hi) { const m = (lo + hi) >> 1; if (data[m][0] < t) lo = m + 1; else hi = m; }
+    const c = [data[lo], data[lo - 1]].filter(Boolean).sort((p, q) => Math.abs(p[0] - t) - Math.abs(q[0] - t))[0];
+    return c;
+  }
+  function showTip() {
+    const tip = $("tip");
+    if (!geom) return (tip.style.display = "none");
+    const t = geom.t0 + ((hoverX - geom.L) / (geom.R - geom.L)) * geom.span;
+    const lines = [];
+    for (const it of items) {
+      if (!it.visible || !it.data.length) continue;
+      const p = nearest(it.data, t);
+      if (!p || Math.abs(p[0] - t) > Math.max(3000, +$("interval").value * 2)) continue;
+      lines.push(`<div><span class="sw" style="background:${css(PALETTE[it.colorIdx])};width:9px;height:9px;cursor:default"></span> ${esc(it.path.split("/").slice(-2).join("/"))}: <b>${fmt(p[1])}</b></div>`);
+    }
+    if (!lines.length) return (tip.style.display = "none");
+    tip.innerHTML = `<div style="color:var(--muted);margin-bottom:2px">${new Date(t).toLocaleTimeString()}</div>` + lines.join("");
+    tip.style.display = "block";
+    const wrap = cv.parentElement.clientWidth;
+    const left = hoverX + 14 + tip.offsetWidth > wrap ? hoverX - 14 - tip.offsetWidth : hoverX + 14;
+    tip.style.left = Math.max(0, left) + "px"; tip.style.top = geom.T + 6 + "px";
+  }
+  function esc(s) { return s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+  cv.addEventListener("mousemove", (e) => { hoverX = e.offsetX; draw(); });
+  cv.addEventListener("mouseleave", () => { hoverX = null; draw(); });
+  new ResizeObserver(draw).observe(cv.parentElement);
+  if (window.matchMedia) matchMedia("(prefers-color-scheme: dark)").addEventListener?.("change", () => { renderRows(); draw(); });
+
+  // ---- header controls -------------------------------------------------------
+  $("interval").onchange = restartTimer;
+  $("window").onchange = draw;
+  $("normalize").onchange = draw;
+  $("pause").onclick = () => {
+    paused = !paused;
+    $("pause").textContent = paused ? "Resume" : "Pause";
+    if (paused) setStatus(true, "paused"); else poll();
+  };
+  $("clear").onclick = () => { items.forEach((i) => (i.data = [])); renderRows(); draw(); };
+  $("csv").onclick = () => {
+    const times = [...new Set(items.flatMap((i) => i.data.map((d) => d[0])))].sort((a, b) => a - b);
+    const maps = items.map((i) => new Map(i.data));
+    const rows = [["time", ...items.map((i) => i.path)].join(",")];
+    for (const t of times) rows.push([new Date(t).toISOString(), ...maps.map((m) => (m.has(t) ? m.get(t) : ""))].join(","));
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([rows.join("\n")], { type: "text/csv" }));
+    a.download = "dltrend-" + new Date().toISOString().replace(/[:.]/g, "-") + ".csv";
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
+
+  load(); renderRows(); loadRoot(); restartTimer(); poll();
+})();
+</script>
+</body>
+</html>
