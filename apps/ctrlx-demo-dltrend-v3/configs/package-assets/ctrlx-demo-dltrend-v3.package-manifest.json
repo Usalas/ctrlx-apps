@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.6.schema.json",
+  "version": "1.0.1",
+  "id": "ctrlx-demo-dltrend-v3",
+  "services": {
+    "proxyMapping": [
+      {
+        "name": "ctrlx-demo-dltrend-v3.web",
+        "url": "/dltrend-v3",
+        "binding": "unix://{$SNAP_DATA}/package-run/ctrlx-demo-dltrend-v3/web.sock",
+        "restricted": []
+      }
+    ]
+  },
+  "menus": {
+    "sidebar": [
+      {
+        "id": "ctrlx-demo-dltrend-v3",
+        "title": "Data Layer Trend V3",
+        "icon": "bosch-ic-worldwideweb",
+        "items": [
+          {
+            "id": "ctrlx-demo-dltrend-v3-embedded",
+            "title": "Data Layer Trend V3",
+            "target": "embedded",
+            "link": "/dltrend-v3?token=${bearertoken}",
+            "items": []
+          },
+          {
+            "id": "ctrlx-demo-dltrend-v3-blank",
+            "title": "Data Layer Trend V3 (new tab)",
+            "target": "_blank",
+            "link": "/dltrend-v3?token=${bearertoken}",
+            "items": []
+          }
+        ]
+      }
+    ],
+    "overview": [
+      {
+        "id": "ctrlx-demo-dltrend-v3",
+        "title": "Data Layer Trend V3",
+        "icon": "bosch-ic-worldwideweb",
+        "link": "/dltrend-v3?token=${bearertoken}"
+      }
+    ]
+  }
+}
