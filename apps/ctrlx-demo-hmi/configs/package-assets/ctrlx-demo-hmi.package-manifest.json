@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.6.schema.json",
+  "version": "1.0.0",
+  "id": "ctrlx-demo-hmi",
+  "services": {
+    "proxyMapping": [
+      {
+        "name": "ctrlx-demo-hmi.web",
+        "url": "/hmi",
+        "binding": "unix://{$SNAP_DATA}/package-run/ctrlx-demo-hmi/web.sock",
+        "restricted": []
+      }
+    ]
+  },
+  "configuration": {
+    "appDirectories": [
+      {
+        "name": "ctrlx-demo-hmi",
+        "description": "HMI Builder screens",
+        "icon": "bosch-ic-worldwideweb",
+        "copyOnLoad": true
+      }
+    ]
+  },
+  "menus": {
+    "sidebar": [
+      {
+        "id": "ctrlx-demo-hmi",
+        "title": "HMI Builder",
+        "icon": "bosch-ic-worldwideweb",
+        "items": [
+          {
+            "id": "ctrlx-demo-hmi-embedded",
+            "title": "HMI Builder",
+            "target": "embedded",
+            "link": "/hmi?token=${bearertoken}",
+            "items": []
+          },
+          {
+            "id": "ctrlx-demo-hmi-blank",
+            "title": "HMI Builder (new tab)",
+            "target": "_blank",
+            "link": "/hmi?token=${bearertoken}",
+            "items": []
+          }
+        ]
+      }
+    ],
+    "overview": [
+      {
+        "id": "ctrlx-demo-hmi",
+        "title": "HMI Builder",
+        "icon": "bosch-ic-worldwideweb",
+        "link": "/hmi?token=${bearertoken}"
+      }
+    ]
+  }
+}

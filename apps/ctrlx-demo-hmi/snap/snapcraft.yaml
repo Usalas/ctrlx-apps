@@ -1,0 +1,102 @@
+name: ctrlx-demo-hmi
+title: HMI Builder
+version: 1.0.0
+summary: Drag-and-drop web HMI with Data Layer tags for ctrlX OS 4.x
+description: |
+  <!--
+  author: Demo
+  url: https://example.com
+  -->
+  Build for ctrlX OS 4.x (base core24, Data Layer 3.x from SDK 4.6.0).
+  Web HMI builder in the ctrlX sidebar: drag buttons, lamps, data entry, data display,
+  radial and bar gauges onto screens, bind them to Data Layer tags with a built-in browser,
+  then switch to Run to operate. Screens are stored in the active ctrlX configuration
+  (Solutions). Reads and writes use the logged-in user's token and permissions.
+base: core24
+confinement: strict
+grade: stable
+
+platforms:
+  amd64:
+  arm64:
+    build-on: [amd64, arm64]
+    build-for: [arm64]
+
+apps:
+  web:
+    command: bin/run.sh
+    daemon: simple
+    restart-condition: always
+    restart-delay: 10s
+    plugs:
+      - network           # Data Layer IPC
+      - network-bind      # REQUIRED for listen()/accept() on web.sock (seccomp)
+      - datalayer
+      - active-solution   # screens are saved in the active configuration
+    slots:
+      - package-assets    # package-manifest.json -> reverse proxy, sidebar, app directory
+      - package-run       # web.sock for the reverse proxy
+
+parts:
+  web:
+    plugin: python
+    source: .
+    stage-packages:
+      - ctrlx-datalayer
+    override-prime: |
+      craftctl default
+      rm -rf usr/include usr/bin usr/lib/*/pkgconfig usr/lib/*/libcomm_datalayer_static.a
+      TRIPLET="${CRAFT_ARCH_TRIPLET_BUILD_FOR:-${CRAFT_ARCH_TRIPLET:-}}"
+      if [ -n "$TRIPLET" ] && [ -d "usr/lib/$TRIPLET" ]; then
+        find usr/lib -mindepth 1 -maxdepth 1 -type d ! -name "$TRIPLET" -exec rm -rf {} +
+      fi
+      rm -rf lib/python3*/site-packages/pip lib/python3*/site-packages/setuptools
+      rm -f lib/python3*/site-packages/app/mock.py
+
+  www:
+    plugin: dump
+    source: ./www
+    organize:
+      "*": www/
+
+  configs:
+    plugin: dump
+    source: ./configs
+    organize:
+      "package-assets/*": package-assets/${CRAFT_PROJECT_NAME}/
+
+  wrapper:
+    plugin: dump
+    source: wrapper/
+    organize:
+      run.sh: bin/run.sh
+
+slots:
+  package-assets:
+    interface: content
+    content: package-assets
+    source:
+      read:
+        - $SNAP/package-assets/${CRAFT_PROJECT_NAME}
+  package-run:
+    interface: content
+    content: package-run
+    source:
+      write:
+        - $SNAP_DATA/package-run/${CRAFT_PROJECT_NAME}
+
+plugs:
+  datalayer:
+    interface: content
+    content: datalayer
+    target: $SNAP_DATA/.datalayer
+  active-solution:
+    interface: content
+    content: solutions
+    target: $SNAP_COMMON/solutions
+
+lint:
+  ignore:
+    - library:
+        - usr/lib/aarch64-linux-gnu/libcomm_datalayer.so.*
+        - usr/lib/x86_64-linux-gnu/libcomm_datalayer.so.*
