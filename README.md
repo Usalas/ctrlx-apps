@@ -8,6 +8,7 @@ and **arm64** (ctrlX CORE X3 and others). The snap `base` picks the ctrlX OS ver
 |---|---|---|
 | [`ctrlx-demo-dltrend`](apps/ctrlx-demo-dltrend) | 4.x | Web app in the ctrlX sidebar: browse the Data Layer, watch list, live trend chart, CSV export (`/dltrend`) |
 | [`ctrlx-demo-dltrend-v3`](apps/ctrlx-demo-dltrend-v3) | 3.x | Same app for ctrlX OS 3.x (`/dltrend-v3`, sidebar entry "Data Layer Trend V3") |
+| [`ctrlx-demo-hmi`](apps/ctrlx-demo-hmi) | 4.x | Drag-and-drop HMI: buttons, lamps, data entry/display, radial and bar gauges bound to Data Layer tags; screens saved in Solutions (`/hmi`) |
 | [`ctrlx-demo-hmi-v3`](apps/ctrlx-demo-hmi-v3) | 3.x | Drag-and-drop HMI: buttons, lamps, data entry/display, radial and bar gauges bound to Data Layer tags; screens saved in Solutions (`/hmi-v3`) |
 | [`ctrlx-acme-hello`](apps/ctrlx-acme-hello) | 4.x | Minimal starter: logs the CPU load from the Data Layer every 5 s |
 
@@ -20,7 +21,7 @@ and **arm64** (ctrlX CORE X3 and others). The snap `base` picks the ctrlX OS ver
 ## Adding an app
 Create `apps/<snap-name>/` with a `snap/snapcraft.yaml` (snap name `ctrlx-<company>-<app>`,
 `base: core24` for ctrlX OS 4.x or `base: core22` for 3.x, `confinement: strict`).
-core22 uses the `architectures:` syntax, core24 uses `platforms:` (see the two dltrend apps). The workflow picks it up automatically. Web apps behind the ctrlX reverse proxy
+core22 uses the `architectures:` syntax, core24 uses `platforms:` (compare the dltrend and hmi apps with their `-v3` versions). The workflow picks it up automatically. Web apps behind the ctrlX reverse proxy
 need the `network-bind` plug. The build checks for this.
 
 ## How the build works
