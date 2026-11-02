@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "units": "mm",
+  "parts": [
+    { "id": "bed", "name": "Bed", "model": "bed.stl", "parent": null,
+      "position": [0, 0, 0], "rotation": [0, 0, 0], "color": "#7d8a96", "opacity": 1, "modelScale": 1, "visible": true,
+      "meshOffset": { "position": [0, 0, 0], "rotation": [0, 0, 0] }, "motion": null },
+    { "id": "table", "name": "Rotary table", "model": "rotary-table.stl", "parent": "bed",
+      "position": [0, -100, 70], "rotation": [0, 0, 0], "color": "#b0bec5", "opacity": 1, "modelScale": 1, "visible": true,
+      "meshOffset": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "motion": { "type": "rotary", "signal": "axis:C", "direction": "z", "scale": 1, "offset": 0, "invert": false } },
+    { "id": "bridge", "name": "Bridge (Y)", "model": "bridge.stl", "parent": "bed",
+      "position": [0, 0, 220], "rotation": [0, 0, 0], "color": "#007bc0", "opacity": 1, "modelScale": 1, "visible": true,
+      "meshOffset": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "motion": { "type": "linear", "signal": "axis:Y", "direction": "y", "scale": 1, "offset": 0, "invert": false } },
+    { "id": "carriage", "name": "Carriage (X)", "model": "carriage.stl", "parent": "bridge",
+      "position": [0, 0, 0], "rotation": [0, 0, 0], "color": "#5c6bc0", "opacity": 1, "modelScale": 1, "visible": true,
+      "meshOffset": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "motion": { "type": "linear", "signal": "axis:X", "direction": "x", "scale": 1, "offset": 0, "invert": false } },
+    { "id": "spindle", "name": "Spindle (Z)", "model": "spindle.stl", "parent": "carriage",
+      "position": [0, -100, -30], "rotation": [0, 0, 0], "color": "#eceff1", "opacity": 1, "modelScale": 1, "visible": true,
+      "meshOffset": { "position": [0, 0, 0], "rotation": [0, 0, 0] },
+      "motion": { "type": "linear", "signal": "axis:Z", "direction": "z", "scale": 1, "offset": 0, "invert": false } }
+  ],
+  "frames": {
+    "MCS": { "parent": "bed", "position": [0, -100, 190], "rotation": [0, 0, 0] }
+  },
+  "overlay": {
+    "showPoints": true, "showAreas": true, "areaExtent": 1000, "trailLength": 600, "hiddenAreas": [],
+    "kins": { "Gantry": { "show": true, "frame": "MCS", "trail": true, "color": "#00acc1" } }
+  }
+}

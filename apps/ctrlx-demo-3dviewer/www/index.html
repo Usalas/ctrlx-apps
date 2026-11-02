@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CtrlX 3D Viewer</title>
+  <link rel="stylesheet" href="style.css">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.js", "three/addons/": "./vendor/addons/" } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>CtrlX 3D Viewer</h1>
+    <span id="status" class="badge">connecting…</span>
+    <span class="spacer"></span>
+    <span id="dirty" class="dirty" hidden>unsaved changes</span>
+    <button id="btn-settings" class="ghost" title="Data Layer nodes">Settings</button>
+    <button id="btn-save" class="primary" title="Save scene (Ctrl+S)">Save</button>
+  </header>
+
+  <div class="layout">
+    <aside class="panel left">
+      <section>
+        <div class="section-head">
+          <h2>Models on core</h2>
+          <label class="button small">Upload STL<input id="file-input" type="file" accept=".stl" multiple hidden></label>
+        </div>
+        <ul id="model-list" class="list"></ul>
+        <p class="hint">Drop STL files anywhere on the 3D view to upload them.</p>
+      </section>
+      <section class="grow">
+        <div class="section-head">
+          <h2>Assembly</h2>
+          <button id="btn-add-frame" class="small ghost" title="Add a coordinate frame (WCS, PCS…)">+ Frame</button>
+        </div>
+        <ul id="tree" class="tree"></ul>
+      </section>
+    </aside>
+
+    <main class="viewport" id="viewport">
+      <div class="toolbar">
+        <button data-mode="translate" class="tool active" title="Move (W)">Move</button>
+        <button data-mode="rotate" class="tool" title="Rotate (E)">Rotate</button>
+        <button id="btn-space" class="tool" title="Gizmo space (Q)">Local</button>
+        <button id="btn-snap" class="tool" title="Snap 5 mm / 15°">Snap</button>
+        <span class="sep"></span>
+        <button id="btn-fit" class="tool" title="Fit view (F)">Fit</button>
+        <button id="btn-labels" class="tool active" title="Show labels">Labels</button>
+        <button id="btn-live" class="tool active" title="Follow live axis values">Live</button>
+      </div>
+      <div id="drop-hint" class="drop-hint" hidden>Drop STL files to upload to the core</div>
+      <div class="legend">
+        <span><i style="background:var(--area-safe)"></i>Safe area</span>
+        <span><i style="background:var(--area-excl)"></i>Work area excl.</span>
+        <span><i style="background:var(--area-incl)"></i>Work area incl.</span>
+        <span><i class="dot" style="background:var(--point)"></i>Teach point</span>
+      </div>
+    </main>
+
+    <aside class="panel right">
+      <section>
+        <h2>Inspector</h2>
+        <div id="inspector" class="inspector"><p class="hint">Select a part, frame or point.</p></div>
+      </section>
+      <section class="grow">
+        <div class="section-head">
+          <h2>ctrlX MOTION</h2>
+          <button id="btn-refresh" class="small ghost" title="Reload points and areas">Refresh</button>
+        </div>
+        <div class="tabs">
+          <button data-tab="kins" class="active">Kinematics</button>
+          <button data-tab="points">Points</button>
+          <button data-tab="areas">Areas</button>
+        </div>
+        <div id="tab-kins" class="tab"></div>
+        <div id="tab-points" class="tab" hidden></div>
+        <div id="tab-areas" class="tab" hidden></div>
+        <div id="motion-errors" class="errors"></div>
+      </section>
+    </aside>
+  </div>
+
+  <dialog id="settings">
+    <form method="dialog">
+      <h2>Data Layer nodes</h2>
+      <p class="hint">Teach points (PointCollection) and safe areas (SysCfgSafeAreaAll) are read from these nodes. One address per line.</p>
+      <label>Safe / work area nodes<textarea id="set-areas" rows="3" placeholder="motion/…/safe-areas"></textarea></label>
+      <label>Teach point nodes<textarea id="set-points" rows="3" placeholder="motion/…/points"></textarea></label>
+      <label class="check"><input id="set-auto" type="checkbox"> Also use nodes found automatically under <code>motion/</code></label>
+      <div class="discovered">
+        <div class="section-head"><strong>Found automatically</strong><button id="btn-discover" type="button" class="small ghost">Search again</button></div>
+        <pre id="discovered">–</pre>
+      </div>
+      <div class="row end">
+        <button value="cancel" class="ghost">Cancel</button>
+        <button id="btn-settings-save" value="save" class="primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="app.js"></script>
+</body>
+</html>

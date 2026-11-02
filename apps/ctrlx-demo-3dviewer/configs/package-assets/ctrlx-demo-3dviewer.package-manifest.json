@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.6.schema.json",
+  "version": "1.0.0",
+  "id": "ctrlx-demo-3dviewer",
+  "services": {
+    "proxyMapping": [
+      {
+        "name": "ctrlx-demo-3dviewer.web",
+        "url": "/3dviewer",
+        "binding": "unix://{$SNAP_DATA}/package-run/ctrlx-demo-3dviewer/web.sock",
+        "restricted": []
+      }
+    ]
+  },
+  "configuration": {
+    "appDirectories": [
+      {
+        "name": "ctrlx-demo-3dviewer",
+        "description": "CtrlX 3D Viewer STL models and scene",
+        "icon": "bosch-ic-3d-print",
+        "copyOnLoad": true
+      }
+    ]
+  },
+  "menus": {
+    "sidebar": [
+      {
+        "id": "ctrlx-demo-3dviewer",
+        "title": "CtrlX 3D Viewer",
+        "icon": "bosch-ic-3d-print",
+        "items": [
+          {
+            "id": "ctrlx-demo-3dviewer-embedded",
+            "title": "CtrlX 3D Viewer",
+            "target": "embedded",
+            "link": "/3dviewer/?token=${bearertoken}",
+            "items": []
+          },
+          {
+            "id": "ctrlx-demo-3dviewer-blank",
+            "title": "CtrlX 3D Viewer (new tab)",
+            "target": "_blank",
+            "link": "/3dviewer/?token=${bearertoken}",
+            "items": []
+          }
+        ]
+      }
+    ],
+    "overview": [
+      {
+        "id": "ctrlx-demo-3dviewer",
+        "title": "CtrlX 3D Viewer",
+        "icon": "bosch-ic-3d-print",
+        "link": "/3dviewer/?token=${bearertoken}"
+      }
+    ]
+  }
+}

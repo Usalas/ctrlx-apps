@@ -10,6 +10,7 @@ and **arm64** (ctrlX CORE X3 and others). The snap `base` picks the ctrlX OS ver
 | [`ctrlx-demo-dltrend-v3`](apps/ctrlx-demo-dltrend-v3) | 3.x | Same app for ctrlX OS 3.x (`/dltrend-v3`, sidebar entry "Data Layer Trend V3") |
 | [`ctrlx-demo-hmi`](apps/ctrlx-demo-hmi) | 4.x | Drag-and-drop HMI: buttons, lamps, data entry/display, radial and bar gauges bound to Data Layer tags; screens saved in Solutions (`/hmi`) |
 | [`ctrlx-demo-hmi-v3`](apps/ctrlx-demo-hmi-v3) | 3.x | Drag-and-drop HMI: buttons, lamps, data entry/display, radial and bar gauges bound to Data Layer tags; screens saved in Solutions (`/hmi-v3`) |
+| [`ctrlx-demo-3dviewer`](apps/ctrlx-demo-3dviewer) | 4.x | 3D viewer: upload STL files, assemble them and drive parts from motion axes or kinematics; shows kinematics TCP with trail, teach points and safe/work areas (`/3dviewer`) |
 | [`ctrlx-acme-hello`](apps/ctrlx-acme-hello) | 4.x | Minimal starter: logs the CPU load from the Data Layer every 5 s |
 
 ## Getting the snaps
