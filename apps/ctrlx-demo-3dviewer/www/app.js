@@ -81,6 +81,10 @@ camera.position.set(1400, -1600, 1100);
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.enableDamping = true;
 orbit.target.set(0, 0, 150);
+// Without limits the wheel can park the camera on its target, where zooming out barely moves it
+orbit.minDistance = 20;
+orbit.maxDistance = 60000;
+orbit.zoomToCursor = true;
 
 scene3d.add(new THREE.HemisphereLight(0xffffff, 0x8899aa, 1.6));
 const sun = new THREE.DirectionalLight(0xffffff, 1.6);
@@ -142,7 +146,7 @@ function defaultPart(model) {
   return {
     id: uid(), name: model.replace(/\.stl$/i, ''), model, parent: null,
     position: [0, 0, 0], rotation: [0, 0, 0], color: '#9aa7b3', opacity: 1, modelScale: 1, visible: true,
-    meshOffset: { position: [0, 0, 0], rotation: [0, 0, 0] }, motion: null,
+    meshOffset: { position: [0, 0, 0], rotation: [0, 0, 0] }, pivot: [0, 0, 0], motion: null,
   };
 }
 
@@ -153,6 +157,7 @@ function normalizeScene(doc) {
   doc.overlay = { showPoints: true, showAreas: true, areaExtent: 1000, trailLength: 600, hiddenAreas: [], kins: {}, ...(doc.overlay || {}) };
   for (const p of doc.parts) {
     p.meshOffset ??= { position: [0, 0, 0], rotation: [0, 0, 0] };
+    p.pivot ??= [0, 0, 0];
     p.opacity ??= 1; p.modelScale ??= 1; p.visible ??= true; p.color ??= '#9aa7b3';
   }
   return doc;
@@ -167,6 +172,27 @@ function parentObject(parentId) {
 function applyPose(obj, position, rotation) {
   obj.position.fromArray(position);
   obj.rotation.set(rotation[0] * DEG, rotation[1] * DEG, rotation[2] * DEG, 'XYZ');
+}
+
+// The part origin (joint) is its rotation point: shift the STL so that `pivot`
+// (in the STL's own coordinates) lands on it.
+function holderPosition(part) {
+  const o = part.meshOffset;
+  const pivot = new THREE.Vector3().fromArray(part.pivot || [0, 0, 0]).multiplyScalar(part.modelScale || 1)
+    .applyEuler(new THREE.Euler(o.rotation[0] * DEG, o.rotation[1] * DEG, o.rotation[2] * DEG, 'XYZ'));
+  return new THREE.Vector3().fromArray(o.position).sub(pivot);
+}
+
+// Move the rotation point without moving the part on screen
+function setPivot(part, pivot) {
+  const before = holderPosition(part);
+  part.pivot = pivot.map((v) => +(+v).toFixed(4));
+  const shift = before.sub(holderPosition(part)); // how far the STL would jump, in joint coordinates
+  const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(part.rotation[0] * DEG, part.rotation[1] * DEG, part.rotation[2] * DEG, 'XYZ'));
+  shift.applyQuaternion(q);
+  part.position = part.position.map((v, i) => +(v + shift.getComponent(i)).toFixed(3));
+  syncPart(part);
+  setDirty();
 }
 
 function createPartNode(part) {
@@ -187,6 +213,7 @@ function syncPart(part) {
   if (node.joint.parent !== parent) parent.add(node.joint);
   applyPose(node.joint, part.position, part.rotation);
   applyPose(node.holder, part.meshOffset.position, part.meshOffset.rotation);
+  node.holder.position.copy(holderPosition(part));
   node.holder.scale.setScalar(part.modelScale || 1);
   node.joint.visible = part.visible;
 
@@ -435,6 +462,12 @@ function areaBounds(area) {
 }
 
 const areaKey = (a) => `${a.source}|${a.name}`;
+// MCS teach points belong to a kinematics: draw them in that kinematics' frame
+function pointFrame(point) {
+  if (point.referenceSystem === 'ACS') return null;
+  const name = point.kin ? kinSettings(point.kin).frame || 'MCS' : 'MCS';
+  return frames.has(name) ? name : null;
+}
 const drawable = (coordSystem) => coordSystem && coordSystem !== 'ACS' && frames.has(coordSystem);
 
 function buildOverlays() {
@@ -463,14 +496,15 @@ function buildOverlays() {
   });
 
   state.motion.points.forEach((point, index) => {
-    if (!drawable(point.referenceSystem === 'MCS' ? 'MCS' : null)) return;
+    const frameName = pointFrame(point);
+    if (!frameName) return;
     const mesh = new THREE.Mesh(pointGeo, isSelected('point', index) ? pointSelMat : pointMat);
     mesh.position.copy(pointXYZ(point));
     mesh.userData = { kind: 'point', id: index };
     const label = makeLabel(point.name, 'point');
     mesh.add(label);
     mesh.visible = ov.showPoints;
-    frames.get('MCS').overlay.add(mesh);
+    frames.get(frameName).overlay.add(mesh);
     pointVisuals.push({ object: mesh, point, index });
   });
 }
@@ -698,6 +732,15 @@ function renderPartInspector(el, part) {
       ${field('Position', xyz('position', part.position, 1))}
       ${field('Rotation', xyz('rotation', part.rotation, 1))}
     </fieldset>
+    <fieldset><legend>Rotation point (STL coordinates)</legend>
+      ${field('Point', `<div class="xyz">${part.pivot.map((v, i) => `<input type="number" step="1" data-pivot="${i}" value="${+(+v).toFixed(4)}">`).join('')}</div>`)}
+      <div class="row">
+        <button class="small" data-action="pivot-center" title="Centre of the STL's bounding box">Model centre</button>
+        <button class="small" data-action="pivot-bottom" title="Centre of the bottom face of the bounding box">Bottom centre</button>
+        <button class="small" data-action="pivot-origin" title="Origin of the STL file">STL origin</button>
+      </div>
+      <p class="hint">The part rotates about this point, and the gizmo sits on it. Changing it keeps the part in place.</p>
+    </fieldset>
     <fieldset><legend>Motion</legend>
       ${field('Driven by', `<select data-path="motion.type" data-action="motion-type">${options([['', 'Nothing (static)'], ['linear', 'Linear axis'], ['rotary', 'Rotary axis'], ['tcp', 'Kinematics TCP (follows X/Y/Z)']], m.type)}</select>`)}
       ${isAxis ? `
@@ -713,7 +756,7 @@ function renderPartInspector(el, part) {
         ${field('Kinematics', `<select data-path="motion.kin">${options([['', '— select —'], ...state.kins.map((k) => [k, k])].concat(m.kin && !state.kins.includes(m.kin) ? [[m.kin, m.kin + ' (offline)']] : []), m.kin)}</select>`)}
         ${field('In frame', `<select data-path="motion.frame">${options(Object.keys(state.scene.frames).map((f) => [f, f]), m.frame || 'MCS')}</select>`)}
         ${field('TCP', `<span class="readout" id="motion-readout">–</span>`)}
-        <p class="hint">Place the STL with <em>Mesh offset</em> so its tool tip sits at the part origin.</p>
+        <p class="hint">Set the <em>Rotation point</em> on the tool tip so it sits on the TCP.</p>
       ` : ''}
     </fieldset>
     <fieldset><legend>Appearance</legend>
@@ -722,7 +765,7 @@ function renderPartInspector(el, part) {
         <label class="row muted">Opacity <input type="range" min="0.1" max="1" step="0.05" data-path="opacity" value="${part.opacity}"></label>
       </div>
       ${field('STL scale', num('modelScale', part.modelScale, 0.001))}
-      <details><summary>Mesh offset (STL origin → part origin)</summary>
+      <details><summary>STL orientation / extra offset</summary>
         ${field('Position', xyz('meshOffset.position', part.meshOffset.position, 1))}
         ${field('Rotation', xyz('meshOffset.rotation', part.meshOffset.rotation, 1))}
       </details>
@@ -758,6 +801,7 @@ function renderPointInspector(el, point) {
     <fieldset><legend>Teach point</legend>
       ${field('Name', `<b>${esc(point.name)}</b>`)}
       ${field('System', esc(point.referenceSystem))}
+      ${point.kin ? field('Kinematics', esc(point.kin)) : ''}
       ${point.description ? field('Description', esc(point.description)) : ''}
       ${point.entries.map((e, i) => field(esc(e.meaning || KIN_COORDS[i] || `#${i}`), `<span class="readout">${fmt(e.value, 3)} ${esc(e.unit)}</span>`)).join('')}
       ${field('Source', `<code>${esc(point.source)}</code>`)}
@@ -787,6 +831,12 @@ function refreshData(data) {
 $('#inspector').addEventListener('input', (e) => {
   const t = e.target;
   if (t.dataset.manual) { state.manual[t.dataset.manual] = +t.value; return; }
+  if (t.dataset.pivot !== undefined) {
+    const part = partById($('#inspector').dataset.id);
+    const pivot = [...$('#inspector').querySelectorAll('[data-pivot]')].map((i) => +i.value);
+    if (part && pivot.every(Number.isFinite)) { setPivot(part, pivot); updatePoseInputs(part); }
+    return;
+  }
   const data = currentData();
   if (!data || !t.dataset.path || t.dataset.action) return;
   if (t.tagName === 'SELECT') return; // handled on change
@@ -851,6 +901,14 @@ $('#inspector').addEventListener('click', (e) => {
     copy.position = [copy.position[0] + 50, copy.position[1] + 50, copy.position[2]];
     state.scene.parts.push(copy);
     syncPart(copy); setDirty(); select('part', copy.id);
+  } else if (action.startsWith('pivot-')) {
+    loadGeometry(part.model).then((geo) => {
+      const b = geo.boundingBox;
+      const c = b.getCenter(new THREE.Vector3());
+      const pivot = action === 'pivot-center' ? c.toArray() : action === 'pivot-bottom' ? [c.x, c.y, b.min.z] : [0, 0, 0];
+      setPivot(part, pivot);
+      renderInspector();
+    });
   } else if (action === 'drop') {
     loadGeometry(part.model).then((geo) => {
       const node = nodes.get(part.id);
@@ -922,7 +980,8 @@ function renderMotionPanel() {
   $('#tab-points').innerHTML = `<label class="row"><input type="checkbox" id="show-points"${ov.showPoints ? ' checked' : ''}> Show ${pts.length} teach points</label>` +
     (pts.length ? pts.map((p, i) => `<div class="item clickable${isSelected('point', i) ? ' selected' : ''}" data-point="${i}">
       <span class="swatch" style="background:var(--point)"></span><span class="name">${esc(p.name)}</span>
-      <span class="muted readout">${p.referenceSystem === 'MCS' ? pointXYZ(p).toArray().map((v) => fmt(v, 1)).join(' / ') : esc(p.referenceSystem) + ' – not drawn'}</span></div>`).join('')
+      ${p.kin ? `<span class="kind">${esc(p.kin)}</span>` : ''}
+      <span class="muted readout">${pointFrame(p) ? pointXYZ(p).toArray().map((v) => fmt(v, 1)).join(' / ') : esc(p.referenceSystem) + ' – not drawn'}</span></div>`).join('')
       : '<p class="hint">No teach points found. Check the node addresses in Settings.</p>');
 
   const areas = state.motion.safeAreas;
@@ -956,6 +1015,7 @@ $('#tab-kins').addEventListener('change', (e) => {
   if (!k || !t.dataset.kset) return;
   kinSettings(k)[t.dataset.kset] = t.type === 'checkbox' ? t.checked : t.value;
   ensureKinVisual(k);
+  if (t.dataset.kset === 'frame') { buildOverlays(); renderMotionPanel(); }
   setDirty();
 });
 $('#tab-kins').addEventListener('click', (e) => {
@@ -1174,6 +1234,11 @@ function animate(t) {
     if (t - lastReadout > 100) { updateReadouts(); lastReadout = t; }
   }
   orbit.update();
+  if (!Number.isFinite(camera.position.lengthSq()) || !Number.isFinite(orbit.target.lengthSq())) {
+    orbit.target.set(0, 0, 150);
+    camera.position.set(1400, -1600, 1100);
+    fitView();
+  }
   renderer.render(scene3d, camera);
   labelRenderer.render(scene3d, camera);
 }

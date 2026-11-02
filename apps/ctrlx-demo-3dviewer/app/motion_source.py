@@ -22,9 +22,13 @@ KIN_POS_NODES = (
     "motion/kin/{name}/state/values/actual",      # KinActualValues flatbuffer
 )
 
-# Nodes searched when looking for teach points / safe areas (see discover_nodes)
-SAFE_AREA_NAME = re.compile(r"safe.?area", re.I)
-POINT_NAME = re.compile(r"^(points?|pnts?|teach.?points?)$", re.I)
+# Nodes searched when looking for teach points / safe areas (see discover_nodes).
+# Real layout (ctrlX OS 4.x): motion/cfg/safe-areas, motion/kin/<kin>/cfg/points
+SAFE_AREA_NAME = re.compile(r"^safe-?areas?$", re.I)
+POINT_NAME = re.compile(r"^(points?|teach-?points?)$", re.I)
+# Command and state subtrees hold commands / lists, not configuration
+SKIP_SUBTREES = {"cmd", "state"}
+KIN_IN_PATH = re.compile(r"^motion/kin/([^/]+)/")
 
 SAFE_AREA_TYPES = {0: "SAFE_AREA", 1: "WORK_AREA_EXCL", 2: "WORK_AREA_INCL"}
 REFERENCE_SYSTEMS = {0: "UNDEFINED", 1: "CUSTOM", 2: "ACS", 3: "MCS"}
@@ -45,11 +49,12 @@ def _snake(name):
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
-def normalize_safe_areas(data, source):
+def normalize_safe_areas(data, source, default_name=None):
     """Turn a SysCfgSafeAreaAll (as JSON) into a flat list of areas."""
     areas = _pick(data, "safeAreas", default=None)
     if areas is None:
         areas = data if isinstance(data, list) else [data]
+    areas = [a for a in areas if isinstance(a, dict) and _pick(a, "box", default=None) is not None]
     result = []
     for i, area in enumerate(areas or []):
         if not isinstance(area, dict):
@@ -67,7 +72,7 @@ def normalize_safe_areas(data, source):
             })
         result.append({
             "source": source,
-            "name": _pick(area, "name", default=None) or f"area{i + 1}",
+            "name": _pick(area, "name", default=None) or default_name or f"area{i + 1}",
             "coordSystem": _pick(area, "coordSystem", default="MCS") or "MCS",
             "type": area_type,
             "box": boxes,
@@ -75,11 +80,13 @@ def normalize_safe_areas(data, source):
     return result
 
 
-def normalize_points(data, source):
+def normalize_points(data, source, default_name=None):
     """Turn a PointCollection (as JSON) into a flat list of points."""
     points = _pick(data, "points", default=None)
     if points is None:
         points = data if isinstance(data, list) else [data]
+    points = [p for p in points if isinstance(p, dict) and _pick(p, "position", default=None) is not None]
+    kin = KIN_IN_PATH.match(source)
     result = []
     for i, point in enumerate(points or []):
         if not isinstance(point, dict):
@@ -93,7 +100,8 @@ def normalize_points(data, source):
             ref = REFERENCE_SYSTEMS.get(ref, str(ref))
         result.append({
             "source": source,
-            "name": _pick(point, "name", default=None) or f"P{i + 1}",
+            "kin": kin.group(1) if kin else None,
+            "name": _pick(point, "name", default=None) or default_name or f"P{i + 1}",
             "referenceSystem": ref,
             "description": _pick(point, "description", default="") or "",
             "entries": [{
@@ -144,8 +152,11 @@ class SimulatedSource:
     def use_token(self, token):
         pass
 
+    def browse(self, address):
+        return []
+
     def discover_nodes(self):
-        return {"safeAreas": ["sim/safe-areas"], "points": ["sim/points"]}
+        return {"safeAreas": ["sim/safe-areas"], "points": ["motion/kin/Gantry/cfg/points"]}
 
     def read_json(self, address):
         if address == "sim/safe-areas":
@@ -158,7 +169,7 @@ class SimulatedSource:
                 {"name": "Clamp", "coordSystem": "MCS", "type": "WORK_AREA_EXCL",
                  "box": [box(-60, 60), box(-200, -150), box(-130, -60)]},
             ]}
-        if address == "sim/points":
+        if address == "motion/kin/Gantry/cfg/points":
             def pt(name, x, y, z, desc=""):
                 return {"name": name, "referenceSystem": "MCS", "description": desc,
                         "position": {"entries": [
@@ -281,13 +292,7 @@ class DataLayerSource:
                     return None
                 pos = var.get_array_float64()
                 return {"pos": list(pos), "units": []} if pos is not None else None
-        conv = self.system.json_converter()
-        result, text = self.client.read_json_sync(conv, address, 0)
-        if result != self._Result.OK:
-            return None
-        data = json.loads(text)
-        if isinstance(data, dict) and "value" in data and "type" in data:
-            data = data["value"]
+        data = self._json(address)
         pos = _pick(data, "actualPos", default=None)
         if pos is None:
             return None
@@ -299,6 +304,9 @@ class DataLayerSource:
             if result != self._Result.OK:
                 return []
             return list(var.get_array_string() or [])
+
+    def browse(self, address):
+        return self._browse(address) if self._ensure() else []
 
     def discover_nodes(self, root="motion", max_depth=4, max_nodes=3000):
         """Search the motion tree for nodes that look like teach points or safe areas."""
@@ -320,23 +328,33 @@ class DataLayerSource:
             if depth >= max_depth:
                 continue
             # Axis subtrees are large and contain neither points nor safe areas
-            if address.startswith(AXES_ROOT + "/"):
+            if address.startswith(AXES_ROOT + "/") or leaf in SKIP_SUBTREES:
                 continue
             for child in self._browse(address):
                 stack.append((f"{address}/{child}", depth + 1))
         return found
 
-    def read_json(self, address):
-        if not self._ensure():
-            raise ConnectionError("Data Layer not connected")
+    def _json(self, address):
+        """Node value as parsed JSON, or None when the node cannot be read."""
         conv = self.system.json_converter()
-        result, text = self.client.read_json_sync(conv, address, 0)
-        if result != self._Result.OK:
-            raise RuntimeError(f"read {address}: {result}")
-        data = json.loads(text)
+        result, var = self.client.read_json_sync(conv, address, 0)
+        with var:
+            if result != self._Result.OK:
+                self.last_error = f"read {address}: {result}"
+                return None
+            text = var.get_string()
+        data = json.loads(text) if text else None
         # The REST-style envelope is {"type": "...", "value": {...}}
         if isinstance(data, dict) and "value" in data and "type" in data:
             data = data["value"]
+        return data
+
+    def read_json(self, address):
+        if not self._ensure():
+            raise ConnectionError("Data Layer not connected")
+        data = self._json(address)
+        if data is None:
+            raise RuntimeError(self.last_error or f"read {address} failed")
         return data
 
     def close(self):

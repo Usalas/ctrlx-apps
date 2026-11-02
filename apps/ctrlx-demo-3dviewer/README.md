@@ -13,9 +13,10 @@ The app only **reads** from the Data Layer. It never commands motion.
 |---|---|
 | **STL library on the core** | Upload with the button or drag-and-drop onto the 3D view (max 200 MB per file). Files go to the active configuration, `appdata/ctrlx-demo-3dviewer/models/`, so they are saved and restored with the project (Settings → Solutions). |
 | **Assembly** | Add parts and place them with the gizmo (W move, E rotate, Q local/world, snap 5 mm/15°) or by typing numbers. Attach parts to other parts so they ride along (X carriage on a Y bridge, …). Re-attaching keeps the world position. |
+| **Rotation point** | Each part rotates about its own rotation point. Set it in STL coordinates, or click **Model centre**, **Bottom centre** or **STL origin**. The part stays in place while the point moves, and the gizmo sits on it. |
 | **Axis binding** | A part can be driven by a **linear** or **rotary** axis (`motion/axs/<name>/state/values/actual/pos`) along or about its local X/Y/Z, with scale, offset and invert, or by one coordinate of a kinematics. |
 | **Kinematics** | Every kinematics under `motion/kin` gets a live TCP marker with an X/Y/Z readout and a path trail in its frame. A part set to *Kinematics TCP* follows the TCP, for example a gripper. |
-| **Teach points** | Read from a `PointCollection` node. MCS points are drawn as labelled dots; click one for its details. ACS points are listed only. |
+| **Teach points** | Read from `motion/kin/<kin>/cfg/points` (`PointCollection`). MCS points are drawn as labelled dots in their kinematics' frame (Kinematics tab → Frame); click one for its details. ACS points are listed only. |
 | **Safe / work areas** | Read from `SysCfgSafeAreaAll`. Red = SAFE_AREA, orange = WORK_AREA_EXCL, green = WORK_AREA_INCL. A TCP inside a safe area or outside an inclusive work area turns red, and the area is highlighted. |
 | **Coordinate frames** | Place `MCS` in the scene at machine zero (attach it to the machine base). Add `WCS`, `PCS`, … frames for areas defined in other systems. |
 | **Live / Manual** | *Live* streams at 20 Hz over a WebSocket and falls back to HTTP polling. *Manual* shows sliders for checking bindings without moving the machine. |
@@ -24,9 +25,10 @@ All API calls use the logged-in user's token (passed by the sidebar link as `?to
 so the Data Layer's permissions apply. Opened without a token, the page shows *Not logged in*.
 
 ## Teach point and safe area nodes
-The flatbuffer types are fixed (`SysCfgSafeAreaAll`, `motion.robotics.PointCollection`), but the node
-addresses can differ between ctrlX MOTION versions. At start-up the app searches `motion/` for
-nodes named like `safe-areas` and `points`. **Settings** shows what it found and lets you enter
+On ctrlX OS 4.x safe areas are in `motion/cfg/safe-areas` (`SysCfgSafeAreaAll`) and teach points in
+`motion/kin/<kin>/cfg/points` (`PointCollection`). At start-up the app searches `motion/` for nodes
+named `safe-areas` and `points`, skipping `cmd` and `state` subtrees. A node that is a folder is read
+child by child. **Settings** shows what it found and lets you enter
 addresses by hand. Values are read as JSON through the Data Layer converter.
 The kinematics position is read from `motion/kin/<k>/state/values/actual/pos`, with
 `motion/kin/<k>/state/values/actual` (`KinActualValues`) as a fallback.

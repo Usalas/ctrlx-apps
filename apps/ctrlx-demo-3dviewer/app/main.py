@@ -182,18 +182,32 @@ class App:
         area_nodes = list(dict.fromkeys(settings["safeAreaNodes"] + (self.discovered["safeAreas"] if settings["autoDiscover"] else [])))
         point_nodes = list(dict.fromkeys(settings["pointNodes"] + (self.discovered["points"] if settings["autoDiscover"] else [])))
 
+        def read_items(node, normalize, errors):
+            """Read a node holding a whole collection; if it is a folder, read its children one by one."""
+            try:
+                items = normalize(self.source.read_json(node), node)
+                if items:
+                    return items
+                error = None
+            except Exception as exc:
+                error = exc
+            items = []
+            for child in self.source.browse(node):
+                address = f"{node}/{child}"
+                try:
+                    items += normalize(self.source.read_json(address), address, default_name=child)
+                except Exception as exc:
+                    errors.append(f"{address}: {exc}")
+            if not items and error is not None:
+                errors.append(f"{node}: {error}")
+            return items
+
         def read_all():
             out = {"safeAreas": [], "points": [], "errors": [], "nodes": {"safeAreas": area_nodes, "points": point_nodes}}
             for node in area_nodes:
-                try:
-                    out["safeAreas"] += normalize_safe_areas(self.source.read_json(node), node)
-                except Exception as exc:
-                    out["errors"].append(f"{node}: {exc}")
+                out["safeAreas"] += read_items(node, normalize_safe_areas, out["errors"])
             for node in point_nodes:
-                try:
-                    out["points"] += normalize_points(self.source.read_json(node), node)
-                except Exception as exc:
-                    out["errors"].append(f"{node}: {exc}")
+                out["points"] += read_items(node, normalize_points, out["errors"])
             return out
 
         return web.json_response(await self.call(read_all))
