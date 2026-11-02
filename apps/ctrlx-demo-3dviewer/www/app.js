@@ -13,7 +13,8 @@ const fmt = (v, d = 2) => (v === undefined || v === null || Number.isNaN(v) ? '�
 const uid = () => Math.random().toString(36).slice(2, 10);
 const AXIS_DIRS = ['x', 'y', 'z'];
 const KIN_COORDS = ['X', 'Y', 'Z', 'A', 'B', 'C'];
-const AREA_COLORS = { SAFE_AREA: 0xe53935, WORK_AREA_EXCL: 0xfb8c00, WORK_AREA_INCL: 0x43a047 };
+const AREA_COLORS = { SAFE_AREA: 0x4fc3f7, WORK_AREA_EXCL: 0xfb8c00, WORK_AREA_INCL: 0x43a047 };
+const VIOLATION_COLOR = 0xe53935;
 const AREA_LABELS = { SAFE_AREA: 'Safe area', WORK_AREA_EXCL: 'Work excl.', WORK_AREA_INCL: 'Work incl.' };
 
 // ---------------------------------------------------------------------------------------
@@ -156,7 +157,7 @@ function normalizeScene(doc) {
   doc.frames ??= {};
   doc.frames.MCS ??= { parent: null, position: [0, 0, 0], rotation: [0, 0, 0] };
   doc.overlay = { showPoints: true, showAreas: true, areaExtent: 1000, trailLength: 600, hiddenAreas: [], kins: {},
-    hiddenPoints: [], hiddenPointGroups: [], pointLabels: 'all', areaLabels: true, ...(doc.overlay || {}) };
+    hiddenPoints: [], hiddenPointGroups: [], pointLabels: 'all', areaLabels: true, runAxes: [], runKins: [], ...(doc.overlay || {}) };
   for (const p of doc.parts) {
     p.meshOffset ??= { position: [0, 0, 0], rotation: [0, 0, 0] };
     p.pivot ??= [0, 0, 0];
@@ -374,6 +375,7 @@ const kinVisuals = new Map();
 function kinSettings(name) {
   const all = state.scene.overlay.kins;
   all[name] ??= { show: true, frame: 'MCS', trail: true, color: '#00acc1' };
+  all[name].zones ??= []; // area keys this kinematics is monitored against
   return all[name];
 }
 
@@ -410,7 +412,7 @@ function updateKinematics() {
   for (const name of state.kins) {
     const v = ensureKinVisual(name);
     const pos = kinPosition(name);
-    if (!pos) { v.marker.visible = false; continue; }
+    if (!pos) { v.marker.visible = false; v.violations = []; v.violationKeys = []; continue; }
     v.marker.position.copy(pos);
     const last = v.points[v.points.length - 1];
     if (!last || last.distanceToSquared(pos) > 0.25) {
@@ -421,8 +423,10 @@ function updateKinematics() {
       v.trail.geometry.attributes.position.needsUpdate = true;
       v.trail.geometry.setDrawRange(0, v.points.length);
     }
-    const violations = areaViolations(name, pos);
+    const violated = areaViolations(name, pos);
+    const violations = violated.map((a) => a.name);
     v.violations = violations;
+    v.violationKeys = violated.map(areaKey);
     v.label.element.textContent = `${name}  ${fmt(pos.x, 1)}  ${fmt(pos.y, 1)}  ${fmt(pos.z, 1)}`;
     v.label.element.classList.toggle('violation', violations.length > 0);
     v.ball.material.color.set(violations.length ? 0xe53935 : kinSettings(name).color);
@@ -546,7 +550,7 @@ function buildOverlays() {
     group.position.copy(box.getCenter(new THREE.Vector3()));
     group.visible = ov.showAreas && !ov.hiddenAreas.includes(areaKey(area));
     frames.get(area.coordSystem).overlay.add(group);
-    areaVisuals.push({ object: group, fill, label, area, index, box, baseOpacity: fill.material.opacity });
+    areaVisuals.push({ object: group, fill, edges, label, area, index, box, color, baseOpacity: fill.material.opacity, on: false });
   });
 
   state.motion.points.forEach((point, index) => {
@@ -565,20 +569,24 @@ function buildOverlays() {
   syncOverlayLabels();
 }
 
-// Areas a kinematics TCP currently violates (only areas defined in the kinematics' frame)
+// Areas a kinematics TCP currently violates. Only the areas ticked for that kinematics
+// (Kinematics tab → Monitor zones) and defined in its frame are checked.
 function areaViolations(kinName, pos) {
-  const frameName = kinSettings(kinName).frame || 'MCS';
+  const cfg = kinSettings(kinName);
+  const frameName = cfg.frame || 'MCS';
   const out = [];
   for (const v of areaVisuals) {
-    if (v.area.coordSystem !== frameName) continue;
+    if (v.area.coordSystem !== frameName || !cfg.zones.includes(areaKey(v.area))) continue;
     const inside = activeContains(v.area, pos);
     const violated = v.area.type === 'WORK_AREA_INCL' ? !inside : inside;
-    if (violated) out.push(v.area.name);
+    if (violated) out.push(v.area);
   }
   return out;
 }
 
 function activeContains(area, pos) {
+  // An area without any active limit is not a box: nothing is inside it
+  if (!area.box.some((b) => b && b.active)) return false;
   return ['x', 'y', 'z'].every((axis, i) => {
     const b = area.box[i];
     if (!b || !b.active) return true;
@@ -587,11 +595,16 @@ function activeContains(area, pos) {
   });
 }
 
+// An area turns red while a monitoring kinematics violates it
 function highlightViolatedAreas() {
   const hit = new Set();
-  for (const v of kinVisuals.values()) (v.violations || []).forEach((n) => hit.add(n));
+  for (const v of kinVisuals.values()) (v.violationKeys || []).forEach((k) => hit.add(k));
   for (const v of areaVisuals) {
-    const on = hit.has(v.area.name);
+    const on = hit.has(areaKey(v.area));
+    if (v.on === on) continue;
+    v.on = on;
+    v.fill.material.color.set(on ? VIOLATION_COLOR : v.color);
+    v.edges.material.color.set(on ? VIOLATION_COLOR : v.color);
     v.fill.material.opacity = on ? Math.max(0.35, v.baseOpacity) : v.baseOpacity;
     v.label.element.classList.toggle('violation', on);
   }
@@ -1029,6 +1042,11 @@ function renderMotionPanel() {
       <div class="row muted">Frame <select data-kset="frame">${frameOpts(c.frame)}</select>
         <label class="row"><input type="checkbox" data-kset="trail"${c.trail ? ' checked' : ''}> Trail</label>
         <button class="small ghost" data-kclear>Clear</button></div>
+      <details class="zones"${c.zones.length ? '' : ' open'}><summary>Monitor zones (${c.zones.length})</summary>
+        ${state.motion.safeAreas.length ? state.motion.safeAreas.map((a) => `<label class="row"><input type="checkbox" data-kzone="${esc(areaKey(a))}"${c.zones.includes(areaKey(a)) ? ' checked' : ''}>
+          ${esc(a.name)} <span class="muted">${AREA_LABELS[a.type] || esc(a.type)} · ${esc(a.coordSystem)}</span></label>`).join('')
+          : '<p class="hint">No zones found.</p>'}
+      </details>
       <div class="vio errors"></div>
     </div>`;
   }).join('') + `<label class="row muted">Trail length <input type="number" id="trail-len" min="10" max="4000" step="50" value="${ov.trailLength}" style="width:80px"> samples</label>`
@@ -1071,12 +1089,26 @@ function renderMotionPanel() {
     }).join('') + `<label class="row muted">Open sides drawn to ±<input type="number" id="area-extent" min="100" step="100" value="${ov.areaExtent}" style="width:80px"> mm</label>`
       : '<p class="hint">No safe or work areas found. Check the node addresses in Settings.</p>');
 
+  const pick = (kind, name, list) => `<label class="row"><input type="checkbox" data-run-pick="${kind}" value="${esc(name)}"${list.includes(name) ? ' checked' : ''}> ${esc(name)}</label>`;
+  $('#tab-run').innerHTML = `<p class="hint">Positions listed on the right in Run mode.</p>
+    <h3 class="sub">Axes</h3>${state.axes.map((a) => pick('axis', a, ov.runAxes)).join('') || '<p class="hint">No axes found.</p>'}
+    <h3 class="sub">Kinematics</h3>${state.kins.map((k) => pick('kin', k, ov.runKins)).join('') || '<p class="hint">No kinematics found.</p>'}`;
+
   $('#motion-errors').textContent = state.motion.errors.join('\n');
 }
 
+$('#tab-run').addEventListener('change', (e) => {
+  const t = e.target, ov = state.scene.overlay;
+  const key = t.dataset.runPick === 'axis' ? 'runAxes' : t.dataset.runPick === 'kin' ? 'runKins' : null;
+  if (!key) return;
+  ov[key] = t.checked ? [...new Set([...ov[key], t.value])] : ov[key].filter((n) => n !== t.value);
+  renderRunPanel();
+  setDirty();
+});
+
 document.querySelectorAll('.tabs button').forEach((b) => b.addEventListener('click', () => {
   document.querySelectorAll('.tabs button').forEach((x) => x.classList.toggle('active', x === b));
-  ['kins', 'points', 'areas'].forEach((t) => ($(`#tab-${t}`).hidden = t !== b.dataset.tab));
+  ['kins', 'points', 'areas', 'run'].forEach((t) => ($(`#tab-${t}`).hidden = t !== b.dataset.tab));
 }));
 
 $('#tab-kins').addEventListener('input', (e) => {
@@ -1086,6 +1118,14 @@ $('#tab-kins').addEventListener('change', (e) => {
   const t = e.target;
   if (t.id === 'trail-len') { state.scene.overlay.trailLength = Math.max(10, +t.value || 600); setDirty(); return; }
   const k = t.closest('[data-kin]')?.dataset.kin;
+  if (k && t.dataset.kzone !== undefined) {
+    const c = kinSettings(k);
+    c.zones = t.checked ? [...new Set([...c.zones, t.dataset.kzone])] : c.zones.filter((z) => z !== t.dataset.kzone);
+    t.closest('details').querySelector('summary').textContent = `Monitor zones (${c.zones.length})`;
+    subscribe();
+    setDirty();
+    return;
+  }
   if (!k || !t.dataset.kset) return;
   kinSettings(k)[t.dataset.kset] = t.type === 'checkbox' ? t.checked : t.value;
   ensureKinVisual(k);
@@ -1153,10 +1193,10 @@ let pollTimer = null;
 let polling = false;
 
 function subscription() {
-  // Run mode lists every axis and kinematics
-  if (state.appMode === 'run') return { axes: [...state.axes], kins: [...state.kins] };
-  const axes = new Set();
-  const kins = new Set(state.kins.filter((k) => kinSettings(k).show));
+  // Run mode also streams the axes and kinematics it lists
+  const run = state.appMode === 'run';
+  const axes = new Set(run ? runAxes() : []);
+  const kins = new Set([...state.kins.filter((k) => kinSettings(k).show || kinSettings(k).zones.length), ...(run ? runKins() : [])]);
   for (const p of state.scene?.parts || []) {
     const m = p.motion;
     if (!m) continue;
@@ -1314,6 +1354,7 @@ function setAppMode(mode) {
   document.body.classList.toggle('mode-run', mode === 'run');
   document.querySelectorAll('[data-app-mode]').forEach((b) => b.classList.toggle('active', b.dataset.appMode === mode));
   if (mode === 'run' && !state.liveEnabled) $('#btn-live').click(); // run mode always follows the machine
+  if (mode === 'run' && !$('#tab-run').hidden) $('[data-tab="kins"]').click();
   try { localStorage.setItem('3dviewer.mode', mode); } catch { /* not kept */ }
   attachGizmo();
   applyPanels();
@@ -1322,14 +1363,22 @@ function setAppMode(mode) {
 }
 document.querySelectorAll('[data-app-mode]').forEach((b) => b.addEventListener('click', () => setAppMode(b.dataset.appMode)));
 
+// Run mode lists only the axes and kinematics ticked in Edit mode → Run view
+const runAxes = () => state.scene ? state.axes.filter((a) => state.scene.overlay.runAxes.includes(a)) : [];
+const runKins = () => state.scene ? state.kins.filter((k) => state.scene.overlay.runKins.includes(k)) : [];
+
 function renderRunPanel() {
-  $('#run-axes').innerHTML = state.axes.length
-    ? state.axes.map((a) => `<tr><td>${esc(a)}</td><td class="val" data-run-axis="${esc(a)}">–</td></tr>`).join('')
-    : '<tr><td class="hint">No axes found under motion/axs.</td></tr>';
-  $('#run-kins').innerHTML = state.kins.length
-    ? state.kins.map((k) => `<div class="run-kin" data-run-kin="${esc(k)}" style="--c:${esc(kinSettings(k).color)}">
+  const hint = '<p class="hint">Nothing selected. Choose in Edit mode → ctrlX MOTION → Run view.</p>';
+  const axes = runAxes(), kins = runKins();
+  $('#run-axes').closest('section').hidden = !axes.length && kins.length > 0;
+  $('#run-kins').closest('section').hidden = !kins.length && axes.length > 0;
+  $('#run-axes').innerHTML = axes.length
+    ? axes.map((a) => `<tr><td>${esc(a)}</td><td class="val" data-run-axis="${esc(a)}">–</td></tr>`).join('')
+    : `<tr><td>${hint}</td></tr>`;
+  $('#run-kins').innerHTML = kins.length
+    ? kins.map((k) => `<div class="run-kin" data-run-kin="${esc(k)}" style="--c:${esc(kinSettings(k).color)}">
         <b>${esc(k)}</b><table class="live-table"></table><div class="vio"></div></div>`).join('')
-    : '<p class="hint">No kinematics found under motion/kin.</p>';
+    : (axes.length ? '' : hint);
 }
 
 function updateRunReadouts() {
@@ -1408,7 +1457,8 @@ function animate(t) {
     updateKinematics();
     highlightViolatedAreas();
     if (t - lastReadout > 100) {
-      if (state.appMode === 'run') updateRunReadouts(); else updateReadouts();
+      updateReadouts();
+      if (state.appMode === 'run') updateRunReadouts();
       lastReadout = t;
     }
   }

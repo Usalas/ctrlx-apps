@@ -10,7 +10,7 @@
   --sel: #d9ecf7;
   --danger: #c62828;
   --view: #e9edf1;
-  --area-safe: #e53935;
+  --area-safe: #4fc3f7;
   --area-excl: #fb8c00;
   --area-incl: #43a047;
   --point: #8e24aa;
@@ -207,4 +207,7 @@ dialog label.check { flex-direction: row; align-items: center; }
 .point-group .group-head b { flex: 1; }
 .point-group .item { padding-left: 14px; }
 .tab .item[hidden] { display: none; }
+.tab h3.sub { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 10px 0 4px; font-weight: 600; }
+.tab details.zones { font-size: 12px; }
+.tab details.zones label { margin: 2px 0 0 4px; }
 .drop-hint[hidden], .toast[hidden] { display: none; }
