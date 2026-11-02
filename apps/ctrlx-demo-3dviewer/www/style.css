@@ -75,8 +75,25 @@ textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-siz
 }
 .dirty { color: var(--area-excl); font-size: 12px; }
 
-.layout { flex: 1; display: grid; grid-template-columns: 260px 1fr 320px; min-height: 0; }
-.panel { background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: auto; }
+.layout { flex: 1; display: flex; min-height: 0; }
+.layout > .viewport { flex: 1; }
+.panel { background: var(--panel); display: flex; flex-direction: column; min-height: 0; overflow: auto; flex: none; }
+.panel.left { width: 260px; }
+.panel.right { width: 320px; }
+body.hide-left .panel.left, body.hide-right .panel.right { display: none; }
+body.mode-run .edit-only, body:not(.mode-run) .run-only { display: none !important; }
+.panel-toggle { font-size: 15px; padding: 2px 8px; color: var(--muted); }
+.panel-toggle[aria-pressed="true"] { color: var(--accent); }
+.seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.seg button { border: none; border-radius: 0; padding: 3px 12px; background: transparent; color: var(--muted); }
+.seg button.active { background: var(--accent); color: var(--accent-text); }
+.live-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.live-table td { padding: 3px 4px; border-bottom: 1px solid var(--line); }
+.live-table td.val { text-align: right; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+.live-table td.unit { color: var(--muted); font-size: 11px; width: 34px; }
+.run-kin { border: 1px solid var(--line); border-left: 3px solid var(--c, var(--tcp)); border-radius: 6px; padding: 6px 8px; margin-bottom: 8px; }
+.run-kin.violation { border-color: var(--danger); }
+.run-kin .vio { color: var(--danger); font-size: 12px; }
 .panel.left { border-right: 1px solid var(--line); }
 .panel.right { border-left: 1px solid var(--line); }
 .panel section { padding: 12px; border-bottom: 1px solid var(--line); }
@@ -121,10 +138,13 @@ textarea { width: 100%; font-family: ui-monospace, Consolas, monospace; font-siz
 }
 
 .lbl {
-  font: 11px/1.2 system-ui, sans-serif; color: var(--text); background: color-mix(in srgb, var(--panel) 85%, transparent);
-  border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; white-space: nowrap; transform: translateY(-14px);
+  font: 600 12px/1.25 system-ui, sans-serif; color: var(--text); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+  box-shadow: 0 1px 3px rgb(0 0 0 / .25); max-width: 220px; overflow: hidden; text-overflow: ellipsis;
 }
-.lbl.point { border-color: var(--point); }
+/* three.js sets transform on labels, so offsets use margins */
+.lbl.point { border-left: 3px solid var(--point); margin: -4px 0 0 7px; }
+.lbl.area { border-left: 3px solid var(--c, var(--line)); margin-top: -4px; }
 .lbl.tcp { border-color: var(--tcp); font-variant-numeric: tabular-nums; }
 .lbl.tcp.violation, .lbl.violation { border-color: var(--danger); color: var(--danger); }
 .lbl.frame { color: var(--muted); }
@@ -171,11 +191,20 @@ dialog label.check { flex-direction: row; align-items: center; }
 
 @media (max-width: 900px) {
   body { overflow: auto; }
-  .layout { flex: none; grid-template-columns: 1fr; grid-auto-rows: auto; }
-  .viewport { height: 60vh; order: -1; }
+  .layout { flex: none; flex-direction: column; }
+  .layout > .viewport { flex: none; height: 60vh; order: -1; }
+  .panel.left, .panel.right { width: auto; }
   .panel { overflow: visible; min-height: auto; }
   .panel.left, .panel.right { border: none; border-top: 1px solid var(--line); }
   .topbar { flex-wrap: wrap; padding: 8px 16px; }
 }
 .tab .item.selected { background: var(--sel); }
+.tab .row { margin-bottom: 6px; }
+.tab .spacer { flex: 1; }
+.point-group { margin-bottom: 6px; }
+.point-group.off { opacity: .5; }
+.point-group .group-head { display: flex; align-items: center; gap: 6px; padding: 4px 2px; background: var(--hover); border-radius: 4px; }
+.point-group .group-head b { flex: 1; }
+.point-group .item { padding-left: 14px; }
+.tab .item[hidden] { display: none; }
 .drop-hint[hidden], .toast[hidden] { display: none; }

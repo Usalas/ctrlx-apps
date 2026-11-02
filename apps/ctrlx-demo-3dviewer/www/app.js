@@ -26,6 +26,7 @@ const state = {
   live: { axes: {}, kins: {} },
   manual: {},                // signal -> value when Live is off
   liveEnabled: true,
+  appMode: 'edit',           // 'edit' | 'run'
   motion: { safeAreas: [], points: [], errors: [], nodes: {} },
   selection: null,           // {kind: 'part'|'frame'|'point', id}
   dirty: false,
@@ -154,7 +155,8 @@ function normalizeScene(doc) {
   doc.parts ??= [];
   doc.frames ??= {};
   doc.frames.MCS ??= { parent: null, position: [0, 0, 0], rotation: [0, 0, 0] };
-  doc.overlay = { showPoints: true, showAreas: true, areaExtent: 1000, trailLength: 600, hiddenAreas: [], kins: {}, ...(doc.overlay || {}) };
+  doc.overlay = { showPoints: true, showAreas: true, areaExtent: 1000, trailLength: 600, hiddenAreas: [], kins: {},
+    hiddenPoints: [], hiddenPointGroups: [], pointLabels: 'all', areaLabels: true, ...(doc.overlay || {}) };
   for (const p of doc.parts) {
     p.meshOffset ??= { position: [0, 0, 0], rotation: [0, 0, 0] };
     p.pivot ??= [0, 0, 0];
@@ -462,6 +464,56 @@ function areaBounds(area) {
 }
 
 const areaKey = (a) => `${a.source}|${a.name}`;
+const pointKey = (p) => `${p.kin || p.source}|${p.name}`;
+const pointGroup = (p) => p.kin || p.referenceSystem || 'Points';
+
+// Removing a group does not remove its CSS2D labels from the page (three.js only does
+// that for the label object itself), so take the label elements out here.
+function disposeOverlay(object) {
+  object.removeFromParent();
+  object.traverse((o) => {
+    if (o.isCSS2DObject) o.element.remove();
+    if (o.geometry && o.geometry !== pointGeo) o.geometry.dispose();
+    if (o.material && o.material !== pointMat && o.material !== pointSelMat) o.material.dispose();
+  });
+}
+
+// Labels follow their object's visibility (CSS2DRenderer only checks the label itself)
+function syncOverlayLabels() {
+  const ov = state.scene.overlay;
+  for (const v of areaVisuals) v.label.visible = v.object.visible && ov.areaLabels;
+  for (const v of pointVisuals) {
+    const show = ov.pointLabels === 'all' || (ov.pointLabels === 'selected' && isSelected('point', v.index));
+    v.label.visible = v.object.visible && show;
+  }
+}
+
+// Hide labels that would overlap one already shown: selected point first, then areas,
+// then points nearest the camera.
+let lastDeclutter = 0;
+function declutterLabels(t) {
+  if (t - lastDeclutter < 150) return;
+  lastDeclutter = t;
+  // TCP and frame labels always stay; the others make room for them
+  const items = [...kinVisuals.values(), ...frames.values()].map((v) => ({ el: v.label.element, rank: -1, fixed: true }));
+  for (const v of areaVisuals) if (v.label.visible) items.push({ el: v.label.element, rank: 1 });
+  for (const v of pointVisuals) {
+    if (!v.label.visible) continue;
+    const d = camera.position.distanceTo(v.object.getWorldPosition(new THREE.Vector3()));
+    items.push({ el: v.label.element, rank: isSelected('point', v.index) ? 0 : 2 + d / 1e6 });
+  }
+  items.sort((a, b) => a.rank - b.rank);
+  const placed = [];
+  for (const it of items) {
+    if (!it.fixed) it.el.style.visibility = '';
+    if (it.el.style.display === 'none' || !it.el.isConnected) continue;
+    const r = it.el.getBoundingClientRect();
+    if (it.fixed) { placed.push(r); continue; }
+    const hit = placed.some((p) => r.left < p.right + 2 && r.right > p.left - 2 && r.top < p.bottom + 1 && r.bottom > p.top - 1);
+    if (hit) it.el.style.visibility = 'hidden';
+    else placed.push(r);
+  }
+}
 // MCS teach points belong to a kinematics: draw them in that kinematics' frame
 function pointFrame(point) {
   if (point.referenceSystem === 'ACS') return null;
@@ -471,7 +523,7 @@ function pointFrame(point) {
 const drawable = (coordSystem) => coordSystem && coordSystem !== 'ACS' && frames.has(coordSystem);
 
 function buildOverlays() {
-  for (const v of [...areaVisuals, ...pointVisuals]) v.object.removeFromParent();
+  for (const v of [...areaVisuals, ...pointVisuals]) disposeOverlay(v.object);
   areaVisuals = [];
   pointVisuals = [];
   const ov = state.scene.overlay;
@@ -487,6 +539,8 @@ function buildOverlays() {
     const edges = new THREE.LineSegments(new THREE.EdgesGeometry(fill.geometry), new THREE.LineBasicMaterial({ color }));
     group.add(fill, edges);
     const label = makeLabel(area.name, 'area');
+    label.element.style.setProperty('--c', '#' + color.toString(16).padStart(6, '0'));
+    label.center.set(0.5, 1); // just above the top face
     label.position.set(0, 0, size.z / 2);
     group.add(label);
     group.position.copy(box.getCenter(new THREE.Vector3()));
@@ -502,11 +556,13 @@ function buildOverlays() {
     mesh.position.copy(pointXYZ(point));
     mesh.userData = { kind: 'point', id: index };
     const label = makeLabel(point.name, 'point');
+    label.center.set(0, 1); // label sits up and to the right of the dot
     mesh.add(label);
-    mesh.visible = ov.showPoints;
+    mesh.visible = ov.showPoints && !ov.hiddenPoints.includes(pointKey(point)) && !ov.hiddenPointGroups.includes(pointGroup(point));
     frames.get(frameName).overlay.add(mesh);
-    pointVisuals.push({ object: mesh, point, index });
+    pointVisuals.push({ object: mesh, label, point, index });
   });
+  syncOverlayLabels();
 }
 
 // Areas a kinematics TCP currently violates (only areas defined in the kinematics' frame)
@@ -550,6 +606,7 @@ function select(kind, id) {
   state.selection = kind ? { kind, id } : null;
   for (const p of state.scene.parts) syncPart(p);
   pointVisuals.forEach((v) => (v.object.material = isSelected('point', v.index) ? pointSelMat : pointMat));
+  syncOverlayLabels();
   attachGizmo();
   renderTree();
   renderInspector();
@@ -558,7 +615,8 @@ function select(kind, id) {
 
 function attachGizmo() {
   const sel = state.selection;
-  if (sel?.kind === 'part' && nodes.has(sel.id)) gizmo.attach(nodes.get(sel.id).joint);
+  if (state.appMode === 'run') gizmo.detach();
+  else if (sel?.kind === 'part' && nodes.has(sel.id)) gizmo.attach(nodes.get(sel.id).joint);
   else if (sel?.kind === 'frame' && frames.has(sel.id)) gizmo.attach(frames.get(sel.id).group);
   else gizmo.detach();
 }
@@ -977,15 +1035,31 @@ function renderMotionPanel() {
     : '<p class="hint">No kinematics found under motion/kin.</p>';
 
   const pts = state.motion.points;
-  $('#tab-points').innerHTML = `<label class="row"><input type="checkbox" id="show-points"${ov.showPoints ? ' checked' : ''}> Show ${pts.length} teach points</label>` +
-    (pts.length ? pts.map((p, i) => `<div class="item clickable${isSelected('point', i) ? ' selected' : ''}" data-point="${i}">
-      <span class="swatch" style="background:var(--point)"></span><span class="name">${esc(p.name)}</span>
-      ${p.kin ? `<span class="kind">${esc(p.kin)}</span>` : ''}
-      <span class="muted readout">${pointFrame(p) ? pointXYZ(p).toArray().map((v) => fmt(v, 1)).join(' / ') : esc(p.referenceSystem) + ' – not drawn'}</span></div>`).join('')
+  const groups = new Map();
+  pts.forEach((p, i) => { const g = pointGroup(p); if (!groups.has(g)) groups.set(g, []); groups.get(g).push(i); });
+  const filter = $('#point-filter')?.value || '';
+  $('#tab-points').innerHTML = `<div class="row"><label class="row"><input type="checkbox" id="show-points"${ov.showPoints ? ' checked' : ''}> Show teach points</label>
+      <span class="spacer"></span>
+      <label class="row muted">Labels <select id="point-labels">${options([['all', 'All'], ['selected', 'Selected only'], ['none', 'None']], ov.pointLabels)}</select></label></div>` +
+    (pts.length ? `<div class="row"><input type="search" id="point-filter" placeholder="Filter points…" value="${esc(filter)}" style="flex:1">
+        <button class="small ghost" data-points-all="1">All</button><button class="small ghost" data-points-all="0">None</button></div>` +
+      [...groups].map(([g, idx]) => {
+        const shown = idx.filter((i) => !ov.hiddenPoints.includes(pointKey(pts[i]))).length;
+        return `<div class="point-group${ov.showPoints ? '' : ' off'}">
+        <label class="group-head"><input type="checkbox" data-point-group="${esc(g)}"${ov.hiddenPointGroups.includes(g) ? '' : ' checked'}>
+          <b>${esc(g)}</b><span class="muted">${shown}/${idx.length}</span></label>
+        ${idx.map((i) => { const p = pts[i]; return `<div class="item clickable${isSelected('point', i) ? ' selected' : ''}" data-point="${i}" data-filter="${esc(p.name.toLowerCase())}">
+          <input type="checkbox" data-point-key="${esc(pointKey(p))}"${ov.hiddenPoints.includes(pointKey(p)) ? '' : ' checked'}${pointFrame(p) ? '' : ' disabled'}>
+          <span class="name" title="${esc(p.description || p.name)}">${esc(p.name)}</span>
+          <span class="muted readout">${pointFrame(p) ? pointXYZ(p).toArray().map((v) => fmt(v, 1)).join(' / ') : esc(p.referenceSystem) + ' – not drawn'}</span></div>`; }).join('')}
+      </div>`;
+      }).join('')
       : '<p class="hint">No teach points found. Check the node addresses in Settings.</p>');
+  applyPointFilter();
 
   const areas = state.motion.safeAreas;
-  $('#tab-areas').innerHTML = `<label class="row"><input type="checkbox" id="show-areas"${ov.showAreas ? ' checked' : ''}> Show ${areas.length} areas</label>` +
+  $('#tab-areas').innerHTML = `<div class="row"><label class="row"><input type="checkbox" id="show-areas"${ov.showAreas ? ' checked' : ''}> Show ${areas.length} areas</label>
+      <span class="spacer"></span><label class="row muted"><input type="checkbox" id="area-labels"${ov.areaLabels ? ' checked' : ''}> Labels</label></div>` +
     (areas.length ? areas.map((a) => {
       const color = '#' + (AREA_COLORS[a.type] ?? 0x888888).toString(16).padStart(6, '0');
       const ok = drawable(a.coordSystem) && a.box.length === 3;
@@ -1022,16 +1096,44 @@ $('#tab-kins').addEventListener('click', (e) => {
   const k = e.target.closest('[data-kclear]') && e.target.closest('[data-kin]')?.dataset.kin;
   if (k) { const v = kinVisuals.get(k); v.points = []; v.trail.geometry.setDrawRange(0, 0); }
 });
+function applyPointFilter() {
+  const q = ($('#point-filter')?.value || '').trim().toLowerCase();
+  document.querySelectorAll('#tab-points [data-filter]').forEach((el) => (el.hidden = !!q && !el.dataset.filter.includes(q)));
+}
+const toggleIn = (list, key, on) => { const out = list.filter((x) => x !== key); if (!on) out.push(key); return out; };
+
+$('#tab-points').addEventListener('input', (e) => { if (e.target.id === 'point-filter') applyPointFilter(); });
 $('#tab-points').addEventListener('change', (e) => {
-  if (e.target.id === 'show-points') { state.scene.overlay.showPoints = e.target.checked; buildOverlays(); setDirty(); }
+  const t = e.target, ov = state.scene.overlay;
+  if (t.id === 'point-filter') return;
+  if (t.id === 'show-points') ov.showPoints = t.checked;
+  else if (t.id === 'point-labels') ov.pointLabels = t.value;
+  else if (t.dataset.pointGroup !== undefined) ov.hiddenPointGroups = toggleIn(ov.hiddenPointGroups, t.dataset.pointGroup, t.checked);
+  else if (t.dataset.pointKey !== undefined) ov.hiddenPoints = toggleIn(ov.hiddenPoints, t.dataset.pointKey, t.checked);
+  else return;
+  buildOverlays();
+  renderMotionPanel();
+  setDirty();
 });
 $('#tab-points').addEventListener('click', (e) => {
+  const all = e.target.closest('[data-points-all]')?.dataset.pointsAll;
+  if (all !== undefined) {
+    // All / None act on the points the filter currently shows
+    const ov = state.scene.overlay;
+    const keys = [...document.querySelectorAll('#tab-points [data-point]:not([hidden]) [data-point-key]')].map((el) => el.dataset.pointKey);
+    for (const k of keys) ov.hiddenPoints = toggleIn(ov.hiddenPoints, k, all === '1');
+    if (all === '1') ov.hiddenPointGroups = [];
+    buildOverlays(); renderMotionPanel(); setDirty();
+    return;
+  }
+  if (e.target.matches('input')) return;
   const i = e.target.closest('[data-point]')?.dataset.point;
   if (i !== undefined) select('point', +i);
 });
 $('#tab-areas').addEventListener('change', (e) => {
   const ov = state.scene.overlay;
   if (e.target.id === 'show-areas') ov.showAreas = e.target.checked;
+  else if (e.target.id === 'area-labels') ov.areaLabels = e.target.checked;
   else if (e.target.id === 'area-extent') ov.areaExtent = Math.max(100, +e.target.value || 1000);
   else if (e.target.dataset.area) {
     const key = e.target.dataset.area;
@@ -1051,6 +1153,8 @@ let pollTimer = null;
 let polling = false;
 
 function subscription() {
+  // Run mode lists every axis and kinematics
+  if (state.appMode === 'run') return { axes: [...state.axes], kins: [...state.kins] };
   const axes = new Set();
   const kins = new Set(state.kins.filter((k) => kinSettings(k).show));
   for (const p of state.scene?.parts || []) {
@@ -1127,20 +1231,24 @@ async function refreshAxes() {
     const changed = JSON.stringify([res.axes, res.kins]) !== JSON.stringify([state.axes, state.kins]);
     state.axes = res.axes;
     state.kins = res.kins;
-    if (changed) { subscribe(); renderMotionPanel(); renderInspector(); }
+    if (changed) { subscribe(); renderMotionPanel(); renderInspector(); renderRunPanel(); }
   } catch { /* status badge reports it */ }
 }
 
-async function refreshMotionObjects() {
+async function refreshMotionObjects(force = false) {
+  let motion;
   try {
-    state.motion = await api('api/motion-objects');
+    motion = await api('api/motion-objects');
   } catch (err) {
-    state.motion = { safeAreas: [], points: [], errors: [err.message], nodes: {} };
+    motion = { safeAreas: [], points: [], errors: [err.message], nodes: {} };
   }
+  // The periodic reload only redraws when ctrlX MOTION actually changed something
+  if (!force && JSON.stringify(motion) === JSON.stringify(state.motion)) return;
+  state.motion = motion;
   buildOverlays();
   renderMotionPanel();
 }
-$('#btn-refresh').addEventListener('click', () => { refreshAxes(); refreshMotionObjects(); });
+$('#btn-refresh').addEventListener('click', () => { refreshAxes(); refreshMotionObjects(true); });
 
 // ---------------------------------------------------------------------------------------
 // Toolbar, settings, save
@@ -1176,6 +1284,71 @@ $('#btn-live').addEventListener('click', (e) => {
   renderMotionPanel();
 });
 
+// ---------------------------------------------------------------------------------------
+// Edit / Run mode and collapsible side panels
+// ---------------------------------------------------------------------------------------
+// Which panels are open is remembered per mode in this browser
+const PANEL_DEFAULTS = { edit: { left: true, right: true }, run: { left: false, right: true } };
+let panels = PANEL_DEFAULTS;
+try { panels = { ...PANEL_DEFAULTS, ...JSON.parse(localStorage.getItem('3dviewer.panels') || '{}') }; } catch { /* defaults */ }
+
+function applyPanels() {
+  const p = panels[state.appMode];
+  document.body.classList.toggle('hide-left', !p.left);
+  document.body.classList.toggle('hide-right', !p.right);
+  $('#btn-left').setAttribute('aria-pressed', String(p.left));
+  $('#btn-right').setAttribute('aria-pressed', String(p.right));
+}
+
+function togglePanel(side) {
+  const p = panels[state.appMode];
+  panels = { ...panels, [state.appMode]: { ...p, [side]: !p[side] } };
+  try { localStorage.setItem('3dviewer.panels', JSON.stringify(panels)); } catch { /* not kept */ }
+  applyPanels();
+}
+$('#btn-left').addEventListener('click', () => togglePanel('left'));
+$('#btn-right').addEventListener('click', () => togglePanel('right'));
+
+function setAppMode(mode) {
+  state.appMode = mode;
+  document.body.classList.toggle('mode-run', mode === 'run');
+  document.querySelectorAll('[data-app-mode]').forEach((b) => b.classList.toggle('active', b.dataset.appMode === mode));
+  if (mode === 'run' && !state.liveEnabled) $('#btn-live').click(); // run mode always follows the machine
+  try { localStorage.setItem('3dviewer.mode', mode); } catch { /* not kept */ }
+  attachGizmo();
+  applyPanels();
+  renderRunPanel();
+  subscribe();
+}
+document.querySelectorAll('[data-app-mode]').forEach((b) => b.addEventListener('click', () => setAppMode(b.dataset.appMode)));
+
+function renderRunPanel() {
+  $('#run-axes').innerHTML = state.axes.length
+    ? state.axes.map((a) => `<tr><td>${esc(a)}</td><td class="val" data-run-axis="${esc(a)}">–</td></tr>`).join('')
+    : '<tr><td class="hint">No axes found under motion/axs.</td></tr>';
+  $('#run-kins').innerHTML = state.kins.length
+    ? state.kins.map((k) => `<div class="run-kin" data-run-kin="${esc(k)}" style="--c:${esc(kinSettings(k).color)}">
+        <b>${esc(k)}</b><table class="live-table"></table><div class="vio"></div></div>`).join('')
+    : '<p class="hint">No kinematics found under motion/kin.</p>';
+}
+
+function updateRunReadouts() {
+  for (const el of document.querySelectorAll('[data-run-axis]')) {
+    el.textContent = fmt(state.live.axes[el.dataset.runAxis], 3);
+  }
+  for (const box of document.querySelectorAll('[data-run-kin]')) {
+    const name = box.dataset.runKin;
+    const k = state.live.kins[name];
+    const table = box.querySelector('table');
+    table.innerHTML = k?.pos?.length
+      ? k.pos.map((v, i) => `<tr><td>${KIN_COORDS[i] || i + 1}</td><td class="val">${fmt(v, 3)}</td><td class="unit">${esc(k.units?.[i] || '')}</td></tr>`).join('')
+      : '<tr><td class="hint">no data</td></tr>';
+    const vio = kinVisuals.get(name)?.violations || [];
+    box.classList.toggle('violation', vio.length > 0);
+    box.querySelector('.vio').textContent = vio.length ? `⚠ in violation: ${vio.join(', ')}` : '';
+  }
+}
+
 async function save() {
   try {
     await api('api/scene', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(state.scene) });
@@ -1189,6 +1362,8 @@ window.addEventListener('keydown', (e) => {
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); save(); return; }
   if (e.target.closest('input, textarea, select, dialog')) return;
   const k = e.key.toLowerCase();
+  if (k === 'f') { fitView(); return; }
+  if (state.appMode === 'run') return;
   if (k === 'w') setMode('translate');
   else if (k === 'e') setMode('rotate');
   else if (k === 'q') toggleSpace();
@@ -1219,7 +1394,7 @@ dialog.addEventListener('close', async () => {
   const lines = (id) => $(id).value.split('\n').map((s) => s.trim()).filter(Boolean);
   await api('api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ safeAreaNodes: lines('#set-areas'), pointNodes: lines('#set-points'), autoDiscover: $('#set-auto').checked }) });
-  refreshMotionObjects();
+  refreshMotionObjects(true);
 });
 
 // ---------------------------------------------------------------------------------------
@@ -1232,7 +1407,10 @@ function animate(t) {
     if (!gizmo.dragging) applyMotion();
     updateKinematics();
     highlightViolatedAreas();
-    if (t - lastReadout > 100) { updateReadouts(); lastReadout = t; }
+    if (t - lastReadout > 100) {
+      if (state.appMode === 'run') updateRunReadouts(); else updateReadouts();
+      lastReadout = t;
+    }
   }
   orbit.update();
   if (!Number.isFinite(camera.position.lengthSq()) || !Number.isFinite(orbit.target.lengthSq())) {
@@ -1242,6 +1420,7 @@ function animate(t) {
   }
   renderer.render(scene3d, camera);
   labelRenderer.render(scene3d, camera);
+  if (state.scene) declutterLabels(t);
 }
 
 async function start() {
@@ -1261,7 +1440,10 @@ async function start() {
   renderInspector();
   await Promise.all([refreshStatus(), refreshAxes()]);
   renderMotionPanel();
-  refreshMotionObjects();
+  let mode = 'edit';
+  try { mode = localStorage.getItem('3dviewer.mode') === 'run' ? 'run' : 'edit'; } catch { /* edit */ }
+  setAppMode(mode);
+  refreshMotionObjects(true);
   connectWs();
   if (state.scene.parts.length) setTimeout(fitView, 300);
   setInterval(refreshStatus, 5000);

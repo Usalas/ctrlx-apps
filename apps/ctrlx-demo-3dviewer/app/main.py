@@ -37,6 +37,11 @@ MAX_UPLOAD = 200 * 1024 * 1024
 VERSION = os.environ.get("SNAP_VERSION", "dev")
 
 
+def unique(items, key):
+    seen = set()
+    return [i for i in items if not (key(i) in seen or seen.add(key(i)))]
+
+
 def check_token(token):
     if not token:
         return (True, "") if DEV_MODE else (False, "missing token - open the 3D Viewer from the ctrlX menu")
@@ -209,6 +214,10 @@ class App:
                 out["safeAreas"] += read_items(node, normalize_safe_areas, out["errors"])
             for node in point_nodes:
                 out["points"] += read_items(node, normalize_points, out["errors"])
+            # A node listed in Settings and also found by the search, or read both as a
+            # collection and per child, must not show its items twice
+            out["safeAreas"] = unique(out["safeAreas"], lambda a: (a["coordSystem"], a["name"], json.dumps(a["box"])))
+            out["points"] = unique(out["points"], lambda p: (p.get("kin"), p["name"], json.dumps(p["entries"])))
             return out
 
         return web.json_response(await self.call(read_all))

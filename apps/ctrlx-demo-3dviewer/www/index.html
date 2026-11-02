@@ -13,8 +13,14 @@
   <header class="topbar">
     <h1>CtrlX 3D Viewer</h1>
     <span id="status" class="badge">connecting…</span>
+    <div class="seg" role="group" aria-label="Mode">
+      <button data-app-mode="edit" class="active" title="Arrange parts, frames and motion">Edit</button>
+      <button data-app-mode="run" title="Watch the machine: live axis and kinematics positions">Run</button>
+    </div>
     <span class="spacer"></span>
     <span id="dirty" class="dirty" hidden>unsaved changes</span>
+    <button id="btn-left" class="ghost panel-toggle" title="Show / hide the left panel" aria-pressed="true">◧</button>
+    <button id="btn-right" class="ghost panel-toggle" title="Show / hide the right panel" aria-pressed="true">◨</button>
     <button id="btn-settings" class="ghost" title="Data Layer nodes">Settings</button>
     <button id="btn-save" class="primary" title="Save scene (Ctrl+S)">Save</button>
   </header>
@@ -40,14 +46,14 @@
 
     <main class="viewport" id="viewport">
       <div class="toolbar">
-        <button data-mode="translate" class="tool active" title="Move (W)">Move</button>
-        <button data-mode="rotate" class="tool" title="Rotate (E)">Rotate</button>
-        <button id="btn-space" class="tool" title="Gizmo space (Q)">Local</button>
-        <button id="btn-snap" class="tool" title="Snap 5 mm / 15°">Snap</button>
-        <span class="sep"></span>
+        <button data-mode="translate" class="tool active edit-only" title="Move (W)">Move</button>
+        <button data-mode="rotate" class="tool edit-only" title="Rotate (E)">Rotate</button>
+        <button id="btn-space" class="tool edit-only" title="Gizmo space (Q)">Local</button>
+        <button id="btn-snap" class="tool edit-only" title="Snap 5 mm / 15°">Snap</button>
+        <span class="sep edit-only"></span>
         <button id="btn-fit" class="tool" title="Fit view (F)">Fit</button>
         <button id="btn-labels" class="tool active" title="Show labels">Labels</button>
-        <button id="btn-live" class="tool active" title="Follow live axis values">Live</button>
+        <button id="btn-live" class="tool active edit-only" title="Follow live axis values">Live</button>
       </div>
       <div id="drop-hint" class="drop-hint" hidden>Drop STL files to upload to the core</div>
       <div class="legend">
@@ -59,7 +65,15 @@
     </main>
 
     <aside class="panel right">
-      <section>
+      <section class="run-only">
+        <h2>Axis positions</h2>
+        <table id="run-axes" class="live-table"></table>
+      </section>
+      <section class="run-only">
+        <h2>Kinematics positions</h2>
+        <div id="run-kins"></div>
+      </section>
+      <section class="edit-only">
         <h2>Inspector</h2>
         <div id="inspector" class="inspector"><p class="hint">Select a part, frame or point.</p></div>
       </section>
