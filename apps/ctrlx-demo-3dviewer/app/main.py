@@ -34,6 +34,7 @@ URL_PREFIX = "/3dviewer"
 DEV_MODE = "SNAP" not in os.environ
 RATE_HZ = float(os.environ.get("STLM_RATE_HZ", "20"))
 MAX_UPLOAD = 200 * 1024 * 1024
+VERSION = os.environ.get("SNAP_VERSION", "dev")
 
 
 def check_token(token):
@@ -155,7 +156,7 @@ class App:
     # ---- motion ----------------------------------------------------------------------
     async def status(self, request):
         st = await self.call(self.source.status)
-        return web.json_response({**st, "dataDir": str(self.storage.root), "rateHz": RATE_HZ})
+        return web.json_response({**st, "dataDir": str(self.storage.root), "rateHz": RATE_HZ, "version": VERSION})
 
     async def list_axes(self, request):
         axes, kins = await self.call(lambda: (self.source.list_axes(), self.source.list_kins()))

@@ -1111,7 +1111,8 @@ async function refreshStatus() {
     const s = await api('api/status');
     el.textContent = s.source === 'simulation' ? 'Simulation' : s.connected ? 'Data Layer connected' : 'Data Layer offline';
     el.className = 'badge ' + (s.source === 'simulation' ? 'sim' : s.connected ? 'ok' : 'err');
-    el.title = s.message || '';
+    el.title = `App version ${s.version}` + (s.message ? '\n' + s.message : '');
+    $('#app-version').textContent = 'v' + s.version;
   } catch (err) {
     const auth = /token|session/i.test(err.message);
     el.textContent = auth ? 'Not logged in' : 'Server unreachable';
