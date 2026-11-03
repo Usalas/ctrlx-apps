@@ -417,6 +417,8 @@ function updateKinematics() {
   for (const name of state.kins) {
     const v = ensureKinVisual(name);
     const pos = kinPosition(name);
+    // CSS2DRenderer only looks at the label's own visibility, so it follows the marker here
+    v.label.visible = v.marker.visible && !!pos;
     if (!pos) { v.marker.visible = false; v.violations = []; v.violationKeys = []; continue; }
     v.marker.position.copy(pos);
     const last = v.points[v.points.length - 1];
