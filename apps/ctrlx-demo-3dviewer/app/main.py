@@ -5,7 +5,7 @@ kinematics positions from the ctrlX Data Layer over a WebSocket.
 
 On the device:   HTTP over Unix socket  $SNAP_DATA/package-run/<snap>/web.sock
                  reverse proxy URL      /3dviewer   (see package-manifest.json)
-Developing:      HTTP on 127.0.0.1:8080 (STLM_PORT); STLM_SOURCE=simulation fakes axes,
+Developing:      HTTP on 127.0.0.1:8081 (STLM_PORT); STLM_SOURCE=simulation fakes axes,
                  kinematics, teach points and safe areas.
 
 Every /api call needs the user's JWT (Authorization: Bearer, or ?token= for the
@@ -306,7 +306,7 @@ async def main():
         os.chmod(sock, 0o777)
         log.info("Listening on unix:%s", sock)
     else:
-        port = int(os.environ.get("STLM_PORT", "8080"))
+        port = int(os.environ.get("STLM_PORT", "8081"))
         site = web.TCPSite(runner, os.environ.get("STLM_HOST", "127.0.0.1"), port)
         await site.start()
         log.info("Listening on http://127.0.0.1:%d/", port)

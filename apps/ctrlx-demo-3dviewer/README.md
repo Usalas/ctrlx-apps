@@ -51,7 +51,7 @@ cp tools/demo-scene.json data/scene.json
 STLM_SOURCE=simulation python -m app.main
 ```
 
-Open http://127.0.0.1:8080/. The simulation provides axes X, Y, Z, C, a kinematics `Gantry`,
+Open http://127.0.0.1:8081/. The simulation provides axes X, Y, Z, C, a kinematics `Gantry`,
 four teach points and three areas, plus a demo gantry scene.
 To work against a real core or ctrlX COREvirtual, install `ctrlx-datalayer` and set
 `CTRLX_ADDRESS`, `CTRLX_USER`, `CTRLX_PASSWORD` (and `CTRLX_SSL_PORT`).
