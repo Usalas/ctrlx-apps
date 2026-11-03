@@ -2,3 +2,4 @@ data/
 demo-stl/
 __pycache__/
 *.log
+dist/
