@@ -340,6 +340,11 @@ function kinPosition(name) {
 }
 
 const tmpV = new THREE.Vector3();
+// A part driven by one kinematics coordinate (X, Y, Z linear; A, B, C rotary) uses
+// that coordinate only, so a Y bridge never picks up X or Z.
+const motionSignal = (m) => (m.type === 'kin' ? (m.kin ? `kin:${m.kin}:${m.coord ?? 0}` : '') : m.signal);
+const isRotary = (m) => m.type === 'rotary' || (m.type === 'kin' && Number(m.coord) >= 3);
+
 function applyMotion() {
   const ordered = [];
   const visit = (parentId) => state.scene.parts.filter((p) => (p.parent || null) === parentId).forEach((p) => { ordered.push(p); visit(p.id); });
@@ -361,11 +366,11 @@ function applyMotion() {
       }
       continue;
     }
-    const raw = signalValue(m.signal);
+    const raw = signalValue(motionSignal(m));
     if (raw === undefined) continue;
     const value = (m.invert ? -1 : 1) * (raw * (m.scale ?? 1) + (m.offset ?? 0));
     const dir = AXIS_DIRS.includes(m.direction) ? m.direction : 'x';
-    if (m.type === 'rotary') node.motion.rotation[dir] = value * DEG;
+    if (isRotary(m)) node.motion.rotation[dir] = value * DEG;
     else node.motion.position[dir] = value;
   }
 }
@@ -727,6 +732,7 @@ viewport.addEventListener('drop', (e) => { e.preventDefault(); $('#drop-hint').h
 function bindingLabel(m) {
   if (!m) return '';
   if (m.type === 'tcp') return `TCP ${m.kin || '?'}`;
+  if (m.type === 'kin') return `${isRotary(m) ? '⟳' : '↔'} ${m.kin || '?'} ${KIN_COORDS[m.coord ?? 0]}`;
   return `${m.type === 'rotary' ? '⟳' : '↔'} ${(m.signal || '?').replace(/^axis:/, '').replace(/^kin:/, '')}`;
 }
 
@@ -792,7 +798,8 @@ function renderPartInspector(el, part) {
   const blocked = descendants(part.id);
   const parents = [['', 'World'], ...state.scene.parts.filter((p) => p.id !== part.id && !blocked.has(p.id)).map((p) => [p.id, p.name])];
   const m = part.motion || { type: '' };
-  const isAxis = m.type === 'linear' || m.type === 'rotary';
+  const isAxis = m.type === 'linear' || m.type === 'rotary' || m.type === 'kin';
+  const kinSelect = () => field('Kinematics', `<select data-path="motion.kin">${options([['', '— select —'], ...state.kins.map((k) => [k, k])].concat(m.kin && !state.kins.includes(m.kin) ? [[m.kin, m.kin + ' (offline)']] : []), m.kin)}</select>`);
   el.innerHTML = `
     <fieldset><legend>Part</legend>
       ${field('Name', `<input type="text" data-path="name" value="${esc(part.name)}">`)}
@@ -813,18 +820,21 @@ function renderPartInspector(el, part) {
       <p class="hint">The part rotates about this point, and the gizmo sits on it. Changing it keeps the part in place.</p>
     </fieldset>
     <fieldset><legend>Motion</legend>
-      ${field('Driven by', `<select data-path="motion.type" data-action="motion-type">${options([['', 'Nothing (static)'], ['linear', 'Linear axis'], ['rotary', 'Rotary axis'], ['tcp', 'Kinematics TCP (follows X/Y/Z)']], m.type)}</select>`)}
+      ${field('Driven by', `<select data-path="motion.type" data-action="motion-type">${options([['', 'Nothing (static)'], ['linear', 'Linear axis'], ['rotary', 'Rotary axis'], ['kin', 'Kinematics coordinate (X, Y, Z, A, B or C)'], ['tcp', 'Kinematics TCP (X, Y and Z together)']], m.type)}</select>`)}
       ${isAxis ? `
-        ${field('Signal', `<select data-path="motion.signal">${signalOptions(m.signal)}</select>`)}
-        ${field('Direction', `<select data-path="motion.direction">${options(AXIS_DIRS.map((d) => [d, `${m.type === 'rotary' ? 'about' : 'along'} local ${d.toUpperCase()}`]), m.direction)}</select>`)}
+        ${m.type === 'kin' ? `${kinSelect()}
+          ${field('Coordinate', `<select data-path="motion.coord" data-action="kin-coord">${options(KIN_COORDS.map((c, i) => [i, `${c}${i < 3 ? ' (linear)' : ' (rotary)'}`]), m.coord ?? 0)}</select>`)}`
+          : field('Signal', `<select data-path="motion.signal">${signalOptions(m.signal)}</select>`)}
+        ${field('Direction', `<select data-path="motion.direction">${options(AXIS_DIRS.map((d) => [d, `${isRotary(m) ? 'about' : 'along'} local ${d.toUpperCase()}`]), m.direction)}</select>`)}
         ${field('Scale', num('motion.scale', m.scale ?? 1, 0.001))}
         ${field('Offset', num('motion.offset', m.offset ?? 0, 0.1))}
         <label class="field"><span>Invert</span><input type="checkbox" data-path="motion.invert"${m.invert ? ' checked' : ''}></label>
         ${field('Value', `<span class="readout" id="motion-readout">–</span>`)}
-        ${!state.liveEnabled && m.signal ? field('Manual', `<input type="range" data-manual="${esc(m.signal)}" min="${m.type === 'rotary' ? -360 : -1000}" max="${m.type === 'rotary' ? 360 : 1000}" step="0.5" value="${state.manual[m.signal] ?? 0}">`) : ''}
+        ${!state.liveEnabled && motionSignal(m) ? field('Manual', `<input type="range" data-manual="${esc(motionSignal(m))}" min="${isRotary(m) ? -360 : -1000}" max="${isRotary(m) ? 360 : 1000}" step="0.5" value="${state.manual[motionSignal(m)] ?? 0}">`) : ''}
+        ${m.type === 'kin' ? '<p class="hint">Attach the parts that ride on this one (Attached to); they keep their own coordinate.</p>' : ''}
       ` : ''}
       ${m.type === 'tcp' ? `
-        ${field('Kinematics', `<select data-path="motion.kin">${options([['', '— select —'], ...state.kins.map((k) => [k, k])].concat(m.kin && !state.kins.includes(m.kin) ? [[m.kin, m.kin + ' (offline)']] : []), m.kin)}</select>`)}
+        ${kinSelect()}
         ${field('In frame', `<select data-path="motion.frame">${options(Object.keys(state.scene.frames).map((f) => [f, f]), m.frame || 'MCS')}</select>`)}
         ${field('TCP', `<span class="readout" id="motion-readout">–</span>`)}
         <p class="hint">Set the <em>Rotation point</em> on the tool tip so it sits on the TCP.</p>
@@ -934,9 +944,18 @@ $('#inspector').addEventListener('change', (e) => {
   if (t.dataset.action === 'motion-type') {
     const type = t.value;
     const prev = data.motion || {};
-    data.motion = type ? { signal: prev.signal || '', direction: prev.direction || (type === 'rotary' ? 'z' : 'x'), scale: prev.scale ?? 1, offset: prev.offset ?? 0, invert: !!prev.invert, kin: prev.kin || state.kins[0] || '', frame: prev.frame || 'MCS', type } : null;
+    data.motion = type ? { signal: prev.signal || '', direction: prev.direction || (type === 'rotary' ? 'z' : 'x'), scale: prev.scale ?? 1, offset: prev.offset ?? 0, invert: !!prev.invert, kin: prev.kin || state.kins[0] || '', coord: prev.coord ?? 0, frame: prev.frame || 'MCS', type } : null;
     setDirty();
     subscribe();
+    renderTree();
+    renderInspector();
+    return;
+  }
+  if (t.dataset.action === 'kin-coord') {
+    // X/Y/Z move along, A/B/C turn about the matching local axis unless changed afterwards
+    data.motion.coord = Number(t.value);
+    data.motion.direction = 'xyz'[data.motion.coord % 3];
+    setDirty();
     renderTree();
     renderInspector();
     return;
@@ -1011,8 +1030,8 @@ function updateReadouts() {
       const p = m.kin && kinPosition(m.kin);
       out.textContent = p ? `${fmt(p.x, 1)}  ${fmt(p.y, 1)}  ${fmt(p.z, 1)}` : 'no data';
     } else if (m) {
-      const v = signalValue(m.signal);
-      out.textContent = v === undefined ? 'no data' : `${fmt(v, 3)} ${m.type === 'rotary' ? '°' : 'mm'}`;
+      const v = signalValue(motionSignal(m));
+      out.textContent = v === undefined ? 'no data' : `${fmt(v, 3)} ${isRotary(m) ? '°' : 'mm'}`;
     }
   }
   for (const name of state.kins) {
@@ -1200,8 +1219,8 @@ function subscription() {
   for (const p of state.scene?.parts || []) {
     const m = p.motion;
     if (!m) continue;
-    if (m.type === 'tcp' && m.kin) kins.add(m.kin);
-    const [kind, name] = (m.signal || '').split(':');
+    if ((m.type === 'tcp' || m.type === 'kin') && m.kin) kins.add(m.kin);
+    const [kind, name] = (motionSignal(m) || '').split(':');
     if (m.type !== 'tcp' && kind === 'axis') axes.add(name);
     if (m.type !== 'tcp' && kind === 'kin') kins.add(name);
   }

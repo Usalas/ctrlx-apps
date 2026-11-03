@@ -1,6 +1,6 @@
 name: ctrlx-demo-3dviewer
 title: CtrlX 3D Viewer
-version: 1.0.3
+version: 1.0.4
 summary: Assemble STL models in 3D and drive them from ctrlX MOTION for ctrlX OS 4.x
 description: |
   <!--
