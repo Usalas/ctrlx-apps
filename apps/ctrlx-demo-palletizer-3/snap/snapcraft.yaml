@@ -1,7 +1,7 @@
 name: ctrlx-demo-palletizer-3
 title: Palletizer_3
 version: 1.0.0
-summary: Drag-and-drop pallet pattern editor that writes robot CSV files for ctrlX OS 3.x
+summary: Drag-and-drop pallet pattern editor with robot CSV for ctrlX OS 3.x
 description: |
   <!--
   author: Demo
