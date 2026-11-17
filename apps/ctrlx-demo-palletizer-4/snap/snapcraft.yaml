@@ -1,0 +1,82 @@
+name: ctrlx-demo-palletizer-4
+title: Palletizer_4
+version: 1.0.0
+summary: Drag-and-drop pallet pattern editor that writes robot CSV files for ctrlX OS 4.x
+description: |
+  <!--
+  author: Demo
+  url: https://example.com
+  -->
+  Build for ctrlX OS 4.x (base core24).
+  Web app in the ctrlX sidebar: drag boxes onto a pallet layer by layer, see it in 2D and 3D
+  with total dimensions, auto-arrange for maximum area, keep box labels facing out, and save
+  a CSV with Layer, X, Y, Z and Rotation plus box and pallet dimensions. CSV and project files
+  are stored in the active ctrlX configuration (Solutions) and can be opened again.
+base: core24
+confinement: strict
+grade: stable
+
+platforms:
+  amd64:
+  arm64:
+    build-on: [amd64, arm64]
+    build-for: [arm64]
+
+apps:
+  web:
+    command: bin/run.sh
+    daemon: simple
+    restart-condition: always
+    restart-delay: 10s
+    plugs:
+      - network-bind      # REQUIRED for listen()/accept() on web.sock (seccomp)
+      - active-solution   # CSV and project files are saved in the active configuration
+    slots:
+      - package-assets    # package-manifest.json -> reverse proxy, sidebar, app directory
+      - package-run       # web.sock for the reverse proxy
+
+parts:
+  web:
+    plugin: python
+    source: .
+    override-prime: |
+      craftctl default
+      rm -rf lib/python3*/site-packages/pip lib/python3*/site-packages/setuptools
+
+  www:
+    plugin: dump
+    source: ./www
+    organize:
+      "*": www/
+
+  configs:
+    plugin: dump
+    source: ./configs
+    organize:
+      "package-assets/*": package-assets/${CRAFT_PROJECT_NAME}/
+
+  wrapper:
+    plugin: dump
+    source: wrapper/
+    organize:
+      run.sh: bin/run.sh
+
+slots:
+  package-assets:
+    interface: content
+    content: package-assets
+    source:
+      read:
+        - $SNAP/package-assets/${CRAFT_PROJECT_NAME}
+  package-run:
+    interface: content
+    content: package-run
+    source:
+      write:
+        - $SNAP_DATA/package-run/${CRAFT_PROJECT_NAME}
+
+plugs:
+  active-solution:
+    interface: content
+    content: solutions
+    target: $SNAP_COMMON/solutions

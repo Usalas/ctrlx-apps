@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Palletizer_4</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect x=%273%27 y=%2724%27 width=%2726%27 height=%274%27 fill=%27%238a6a43%27/%3E%3Crect x=%275%27 y=%2715%27 width=%2710%27 height=%278%27 fill=%27%232fb4c8%27/%3E%3Crect x=%2717%27 y=%2715%27 width=%2710%27 height=%278%27 fill=%27%232fb4c8%27/%3E%3Crect x=%2710%27 y=%276%27 width=%2712%27 height=%278%27 fill=%27%236fd3e0%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <button class="icon-btn" id="btnMenu" title="Configuration (pallets, boxes, margins, CSV, ctrlX)" aria-label="Open configuration">
+    <svg viewBox="0 0 24 24" width="22" height="22"><path d="M3 6h18M3 12h18M3 18h18" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+  </button>
+  <div class="brand">
+    <svg viewBox="0 0 32 32" width="26" height="26" aria-hidden="true"><rect x="3" y="24" width="26" height="4" rx="1" fill="#8a6a43"/><rect x="5" y="15" width="10" height="8" fill="#2fb4c8"/><rect x="17" y="15" width="10" height="8" fill="#2fb4c8"/><rect x="10" y="6" width="12" height="8" fill="#6fd3e0"/></svg>
+    <span>Palletizer_4</span>
+  </div>
+  <input id="projectName" class="project-name" spellcheck="false" title="Project / file name" value="pattern_01">
+  <select id="palletSelect" class="pallet-select" title="Active pallet"></select>
+  <div class="spacer"></div>
+  <span id="connBadge" class="badge" title="ctrlX connection">offline</span>
+  <button class="btn" id="btnUndo" title="Undo (Ctrl+Z)">↶</button>
+  <button class="btn" id="btnRedo" title="Redo (Ctrl+Y)">↷</button>
+  <button class="btn" id="btnArrange" title="Automatically arrange boxes to maximise pallet area">Auto arrange</button>
+  <button class="btn" id="btnOrient" title="Rotate perimeter boxes so labels face out">Labels out</button>
+  <button class="btn" id="btnOpen" title="Open a saved project">Open</button>
+  <button class="btn" id="btnDownload" title="Download CSV to this computer">CSV ↓</button>
+  <button class="btn primary" id="btnSave" title="Save CSV + project to ctrlX file system">Save to ctrlX</button>
+</header>
+
+<main class="workspace">
+  <!-- LEFT: box palette + layers -->
+  <aside class="side left">
+    <section class="panel">
+      <div class="panel-head"><h2>Boxes</h2><button class="mini" id="btnNewBox" title="Add box type">+ New</button></div>
+      <p class="hint">Drag onto the pallet · double-click to drop in the next free spot</p>
+      <div id="boxPalette" class="palette"></div>
+    </section>
+    <section class="panel grow">
+      <div class="panel-head"><h2>Layers</h2><span class="hint" style="margin:0">PgUp / PgDn</span></div>
+      <div class="btn-row sub">
+        <button class="mini" id="btnLayerAdd" title="Add empty layer above the selected one">+ Layer</button>
+        <button class="mini" id="btnLayerDup" title="Duplicate selected layer on top of it">Duplicate</button>
+        <button class="mini" id="btnLayerCopy" title="Copy layer">Copy</button>
+        <button class="mini" id="btnLayerPaste" title="Paste copied layer into the selected layer (replace) — Shift+click to paste as a new layer">Paste</button>
+        <button class="mini danger" id="btnLayerDel" title="Delete layer">Delete</button>
+      </div>
+      <div class="btn-row sub">
+        <button class="mini" id="btnLayerUp" title="Move layer up">▲</button>
+        <button class="mini" id="btnLayerDown" title="Move layer down">▼</button>
+        <button class="mini" id="btnLayerMirX" title="Mirror layer left↔right">Mirror X</button>
+        <button class="mini" id="btnLayerMirY" title="Mirror layer front↔back">Mirror Y</button>
+        <button class="mini" id="btnLayerRot" title="Rotate whole layer 180° about pallet centre">Rotate 180°</button>
+      </div>
+      <ol id="layerList" class="layer-list"></ol>
+    </section>
+  </aside>
+
+  <!-- CENTER: views -->
+  <section class="center">
+    <div class="view-tabs">
+      <div class="seg" role="tablist">
+        <button data-view="2d" class="active">2D layer</button>
+        <button data-view="split">Split</button>
+        <button data-view="3d">3D</button>
+      </div>
+      <div class="tools2d">
+        <label class="chk"><input type="checkbox" id="optGhost" checked> Show layer below</label>
+        <label class="chk"><input type="checkbox" id="optSnap" checked> Snap</label>
+        <button class="mini" id="btnCenterLayer" title="Centre the layer's boxes on the pallet">Centre layer</button>
+        <button class="mini" id="btnClearLayer" title="Remove all boxes from this layer">Clear</button>
+        <button class="mini" id="btnFit" title="Fit view">Fit</button>
+      </div>
+      <div class="tools3d">
+        <label class="chk"><input type="checkbox" id="opt3dFocus"> Fade other layers</label>
+        <label class="chk"><input type="checkbox" id="opt3dUpTo"> Only up to selected layer</label>
+        <button class="mini" id="btn3dReset">Reset view</button>
+      </div>
+    </div>
+    <div class="views" id="views" data-mode="2d">
+      <div class="view" id="view2d">
+        <canvas id="canvas2d" tabindex="0"></canvas>
+        <div class="legend">
+          <span><i class="sw ok"></i>OK</span><span><i class="sw warn"></i>spacing / margin</span><span><i class="sw bad"></i>overlap</span><span><i class="sw lbl"></i>label</span>
+        </div>
+      </div>
+      <div class="view" id="view3d">
+        <div id="three"></div>
+        <div class="overlay3d" id="overlay3d"></div>
+      </div>
+    </div>
+    <footer class="status"><span id="statusCursor">X — Y —</span><span id="statusMsg"></span><span id="statusWarn"></span></footer>
+  </section>
+
+  <!-- RIGHT: properties + totals -->
+  <aside class="side right">
+    <section class="panel">
+      <div class="panel-head"><h2>Selection</h2></div>
+      <div id="selPanel" class="props"><p class="hint">Click a box to select. Shift+click or drag a rectangle for multiple. Double-click rotates 90°, right-click for angle.</p></div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><h2>Totals</h2></div>
+      <div id="totals" class="totals"></div>
+    </section>
+    <section class="panel grow">
+      <div class="panel-head"><h2>Side view</h2>
+        <div class="seg small" id="sideAxis"><button data-axis="x" class="active">Front</button><button data-axis="y">Side</button></div>
+      </div>
+      <canvas id="sideCanvas"></canvas>
+    </section>
+  </aside>
+</main>
+
+<!-- Context menu -->
+<div id="ctxMenu" class="ctx" hidden>
+  <div class="ctx-angle"><label>Angle °</label><input id="ctxAngle" type="number" step="1"><button id="ctxAngleOk" class="mini primary">Set</button></div>
+  <button data-act="r90">Rotate +90°</button>
+  <button data-act="r-90">Rotate −90°</button>
+  <button data-act="r180">Rotate 180°</button>
+  <hr>
+  <button data-act="labelOut">Label facing out</button>
+  <button data-act="dup">Duplicate</button>
+  <button data-act="del" class="danger">Delete</button>
+</div>
+
+<!-- Configuration drawer -->
+<div id="drawerScrim" class="scrim" hidden></div>
+<aside id="drawer" class="drawer" aria-hidden="true">
+  <div class="drawer-head">
+    <h2>Configuration</h2>
+    <button class="icon-btn" id="btnDrawerClose" aria-label="Close">✕</button>
+  </div>
+  <nav class="drawer-tabs">
+    <button data-tab="pallets" class="active">Pallets</button>
+    <button data-tab="boxes">Boxes</button>
+    <button data-tab="layout">Margins &amp; spacing</button>
+    <button data-tab="csv">CSV export</button>
+    <button data-tab="ctrlx">ctrlX</button>
+  </nav>
+  <div class="drawer-body">
+    <div class="tab" data-tab="pallets">
+      <table class="grid-table" id="palletTable"><thead><tr><th></th><th>Name</th><th>L</th><th>W</th><th>H</th><th></th></tr></thead><tbody></tbody></table>
+      <h3 id="palletFormTitle">Pallet</h3>
+      <form id="palletForm" class="form-grid">
+        <label>Name<input name="name" required></label>
+        <label>Length X (mm)<input name="L" type="number" min="1" step="1" required></label>
+        <label>Width Y (mm)<input name="W" type="number" min="1" step="1" required></label>
+        <label>Height (mm)<input name="H" type="number" min="1" step="1" required></label>
+        <label>Tare weight (kg)<input name="weight" type="number" min="0" step="0.1"></label>
+        <label>Max load height (mm)<input name="maxH" type="number" min="0" step="1"></label>
+        <label>Max load weight (kg)<input name="maxKg" type="number" min="0" step="1"></label>
+        <div class="form-actions">
+          <button type="button" class="btn" id="palletNew">New custom</button>
+          <button type="submit" class="btn primary" id="palletSaveBtn">Save</button>
+        </div>
+        <p class="hint" id="palletFormHint"></p>
+      </form>
+    </div>
+
+    <div class="tab" data-tab="boxes" hidden>
+      <table class="grid-table" id="boxTable"><thead><tr><th></th><th>Name</th><th>L</th><th>W</th><th>H</th><th>kg</th><th></th></tr></thead><tbody></tbody></table>
+      <h3 id="boxFormTitle">Box</h3>
+      <form id="boxForm" class="form-grid">
+        <label>Name<input name="name" required></label>
+        <label>Length (mm)<input name="L" type="number" min="1" step="1" required></label>
+        <label>Width (mm)<input name="W" type="number" min="1" step="1" required></label>
+        <label>Height (mm)<input name="H" type="number" min="1" step="1" required></label>
+        <label>Weight (kg)<input name="weight" type="number" min="0" step="0.01"></label>
+        <label>Colour<input name="color" type="color"></label>
+        <label>Label side
+          <select name="labelSide">
+            <option value="front">Front (length side, −Y)</option>
+            <option value="back">Back (length side, +Y)</option>
+            <option value="right">Right (width side, +X)</option>
+            <option value="left">Left (width side, −X)</option>
+            <option value="none">No label</option>
+          </select>
+        </label>
+        <label>Image use
+          <select name="imageMode">
+            <option value="top">Top face</option>
+            <option value="all">All faces</option>
+            <option value="label">Label face</option>
+          </select>
+        </label>
+        <div class="image-field">
+          <div class="img-preview" id="boxImgPreview">no image</div>
+          <div>
+            <label class="btn file-btn">Load image…<input type="file" id="boxImgInput" accept="image/*" hidden></label>
+            <button type="button" class="btn" id="boxImgClear">Remove</button>
+            <p class="hint">A photo of the box (or of its top) is drawn on the box in 2D and 3D. Images are scaled down to 512 px.</p>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn" id="boxNew">New box</button>
+          <button type="submit" class="btn primary">Save</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="tab" data-tab="layout" hidden>
+      <h3>Pallet margins</h3>
+      <p class="hint">Distance from the pallet edge that boxes must keep. Use negative values to allow overhang.</p>
+      <label class="chk"><input type="checkbox" id="marginLink" checked> Same margin on all sides</label>
+      <div class="margin-box">
+        <label class="m-back">Back (+Y)<input type="number" step="1" id="mBack"></label>
+        <label class="m-left">Left (−X)<input type="number" step="1" id="mLeft"></label>
+        <div class="m-pallet">pallet</div>
+        <label class="m-right">Right (+X)<input type="number" step="1" id="mRight"></label>
+        <label class="m-front">Front (−Y)<input type="number" step="1" id="mFront"></label>
+      </div>
+      <h3>Spacing</h3>
+      <div class="form-grid">
+        <label>Gap between boxes (mm)<input type="number" min="0" step="1" id="setSpacing"></label>
+        <label>Slip sheet between layers (mm)<input type="number" min="0" step="0.5" id="setSlip"></label>
+        <label>Grid snap (mm)<input type="number" min="0" step="1" id="setGrid"></label>
+        <label>Edge snap distance (px)<input type="number" min="0" step="1" id="setSnapPx"></label>
+      </div>
+    </div>
+
+    <div class="tab" data-tab="csv" hidden>
+      <div class="form-grid">
+        <label>Delimiter
+          <select id="csvDelim"><option value=",">Comma ,</option><option value=";">Semicolon ;</option><option value="\t">Tab</option></select>
+        </label>
+        <label>Decimals<input type="number" min="0" max="4" id="csvDec"></label>
+        <label>XY origin
+          <select id="csvOrigin">
+            <option value="corner">Pallet corner (front-left)</option>
+            <option value="center">Pallet centre</option>
+          </select>
+        </label>
+        <label>Z zero
+          <select id="csvZZero">
+            <option value="palletTop">Pallet top surface</option>
+            <option value="floor">Floor (bottom of pallet)</option>
+          </select>
+        </label>
+        <label>Z of box
+          <select id="csvZRef">
+            <option value="top">Top of box (place height)</option>
+            <option value="bottom">Bottom of box</option>
+            <option value="center">Centre of box</option>
+          </select>
+        </label>
+        <label>Rotation range
+          <select id="csvRotRange"><option value="360">0 … 360°</option><option value="180">−180 … +180°</option></select>
+        </label>
+        <label>Box order within layer
+          <select id="csvOrder">
+            <option value="placed">As placed</option>
+            <option value="rows">Rows from origin (Y then X)</option>
+            <option value="farFirst">Far side first (−X robot side last)</option>
+          </select>
+        </label>
+        <label class="chk"><input type="checkbox" id="csvHeader"> Header row</label>
+        <label class="chk"><input type="checkbox" id="csvDims"> Box &amp; pallet dimension columns</label>
+      </div>
+      <h3>Preview</h3>
+      <pre id="csvPreview" class="csv-preview"></pre>
+    </div>
+
+    <div class="tab" data-tab="ctrlx" hidden>
+      <div id="ctrlxInfo" class="ctrlx-info"></div>
+      <h3>Files on ctrlX</h3>
+      <div id="fileList" class="file-list"></div>
+      <div class="form-actions"><button class="btn" id="btnRefreshFiles">Refresh</button><button class="btn" id="btnLogout">Forget login</button></div>
+    </div>
+  </div>
+</aside>
+
+<!-- Auto arrange dialog -->
+<dialog id="dlgArrange" class="dlg">
+  <form method="dialog" id="arrangeForm">
+    <h2>Auto arrange</h2>
+    <div class="form-grid">
+      <label>Box<select id="arBox"></select></label>
+      <label>Mode
+        <select id="arMode">
+          <option value="best">Best pattern (replace boxes)</option>
+          <option value="fill">Fill free space (keep boxes)</option>
+        </select>
+      </label>
+      <label>Apply to
+        <select id="arTarget">
+          <option value="current">Selected layer</option>
+          <option value="all">All existing layers</option>
+          <option value="stack">Build stack (N layers)</option>
+        </select>
+      </label>
+      <label>Layers (0 = fill to max height)<input type="number" id="arLayers" min="0" step="1" value="0"></label>
+      <label>Alternate layers
+        <select id="arAlt">
+          <option value="none">Same pattern</option>
+          <option value="rot180">Rotate 180°</option>
+          <option value="mirrorX">Mirror X</option>
+          <option value="mirrorY">Mirror Y</option>
+        </select>
+      </label>
+      <label class="chk"><input type="checkbox" id="arCenter" checked> Centre pattern on pallet</label>
+      <label class="chk"><input type="checkbox" id="arLabels" checked> Turn labels to face out</label>
+    </div>
+    <p id="arPreview" class="hint"></p>
+    <div class="form-actions">
+      <button value="cancel" class="btn">Cancel</button>
+      <button value="ok" class="btn primary" id="arOk">Arrange</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Open dialog -->
+<dialog id="dlgOpen" class="dlg">
+  <form method="dialog">
+    <h2>Open project</h2>
+    <div id="openList" class="file-list"></div>
+    <div class="form-actions">
+      <label class="btn file-btn">From computer…<input type="file" id="openFileInput" accept=".json,.pallet.json" hidden></label>
+      <button value="cancel" class="btn">Close</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Login dialog -->
+<dialog id="dlgLogin" class="dlg">
+  <form id="loginForm">
+    <h2>ctrlX login</h2>
+    <p class="hint">Saving to the ctrlX file system needs a ctrlX user.</p>
+    <div class="form-grid one">
+      <label>User<input name="user" autocomplete="username" required></label>
+      <label>Password<input name="password" type="password" autocomplete="current-password" required></label>
+    </div>
+    <p id="loginErr" class="err"></p>
+    <div class="form-actions">
+      <button type="button" class="btn" id="loginCancel">Cancel</button>
+      <button type="submit" class="btn primary">Log in</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="toast" class="toast" hidden></div>
+
+<script type="module" src="js/app.js"></script>
+</body>
+</html>

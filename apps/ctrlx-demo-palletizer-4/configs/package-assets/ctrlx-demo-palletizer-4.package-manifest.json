@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.boschrexroth.com/ctrlx-automation/ctrlx-core/apps/package-manifest/package-manifest.v1.6.schema.json",
+  "version": "1.0.0",
+  "id": "ctrlx-demo-palletizer-4",
+  "services": {
+    "proxyMapping": [
+      {
+        "name": "ctrlx-demo-palletizer-4.web",
+        "url": "/palletizer_4",
+        "binding": "unix://{$SNAP_DATA}/package-run/ctrlx-demo-palletizer-4/web.sock",
+        "restricted": []
+      }
+    ]
+  },
+  "configuration": {
+    "appDirectories": [
+      {
+        "name": "ctrlx-demo-palletizer-4",
+        "description": "Palletizer patterns (CSV + project files)",
+        "icon": "bosch-ic-box",
+        "copyOnLoad": true
+      }
+    ]
+  },
+  "menus": {
+    "sidebar": [
+      {
+        "id": "ctrlx-demo-palletizer-4",
+        "title": "Palletizer_4",
+        "icon": "bosch-ic-box",
+        "items": [
+          {
+            "id": "ctrlx-demo-palletizer-4-embedded",
+            "title": "Palletizer_4",
+            "target": "embedded",
+            "link": "/palletizer_4/?token=${bearertoken}",
+            "items": []
+          },
+          {
+            "id": "ctrlx-demo-palletizer-4-blank",
+            "title": "Palletizer_4 (new tab)",
+            "target": "_blank",
+            "link": "/palletizer_4/?token=${bearertoken}",
+            "items": []
+          }
+        ]
+      }
+    ],
+    "overview": [
+      {
+        "id": "ctrlx-demo-palletizer-4",
+        "title": "Palletizer_4",
+        "icon": "bosch-ic-box",
+        "link": "/palletizer_4/?token=${bearertoken}"
+      }
+    ]
+  }
+}
